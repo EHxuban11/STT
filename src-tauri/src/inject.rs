@@ -31,13 +31,16 @@ pub fn insert_via_paste(app: &AppHandle, text: &str) -> Result<(), String> {
     clip.write_text(text.to_string()).map_err(|e| e.to_string())?;
 
     let mut enigo = make_enigo()?;
+    // IMPORTANTE: usar la tecla virtual V (Key::Other), NO Key::Unicode('v').
+    // En Windows, Key::Unicode usa KEYEVENTF_UNICODE e IGNORA el modificador →
+    // escribiría una "v" literal en vez de pegar. Key::Other(VK) sí respeta Ctrl/Cmd.
     #[cfg(target_os = "macos")]
-    let modifier = Key::Meta;
+    let (modifier, v_key) = (Key::Meta, Key::Other(9)); // Cmd + V (kVK_ANSI_V)
     #[cfg(not(target_os = "macos"))]
-    let modifier = Key::Control;
+    let (modifier, v_key) = (Key::Control, Key::Other(0x56)); // Ctrl + V (VK_V)
 
     enigo.key(modifier, Direction::Press).map_err(|e| e.to_string())?;
-    enigo.key(Key::Unicode('v'), Direction::Click).map_err(|e| e.to_string())?;
+    enigo.key(v_key, Direction::Click).map_err(|e| e.to_string())?;
     enigo.key(modifier, Direction::Release).map_err(|e| e.to_string())?;
 
     thread::sleep(Duration::from_millis(120));

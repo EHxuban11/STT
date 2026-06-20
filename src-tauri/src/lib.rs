@@ -192,8 +192,9 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
             if let (Some(rs), Some(eng)) = (resampler.as_mut(), engine.as_mut()) {
                 resampled.clear();
                 if rs.push(&scratch, &mut resampled).is_ok() {
+                    // Segmentos durante la grabación = preview (interim). El definitivo se emite al soltar.
                     for txt in eng.feed(&resampled) {
-                        let _ = app2.emit("transcript", TranscriptEvent { text: txt, interim: false });
+                        let _ = app2.emit("transcript", TranscriptEvent { text: txt, interim: true });
                     }
                     if last_interim.elapsed() >= Duration::from_millis(250) {
                         let it = eng.interim();

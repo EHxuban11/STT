@@ -53,26 +53,21 @@ export function useDictation() {
     // Estado de grabación emitido por el backend Rust.
     subs.push(
       on<string>("state", (phase) => {
-        if (phase === "recording") {
-          setState({ recording: "listening", liveText: "" });
-        } else if (phase === "idle") {
-          const txt = getState().liveText.trim();
-          if (txt) {
-            addTranscription(txt);
-            setState({ recording: "done" });
-          }
+        if (phase === "recording") setState({ recording: "listening", liveText: "" });
+        else if (phase === "idle")
           timers.push(window.setTimeout(() => setState({ recording: null }), 1400));
-        }
       })
     );
 
-    // Transcripciones (interinas y finales por segmento) del backend.
+    // Transcripciones del backend: interim = preview en vivo; final = definitivo.
     subs.push(
       on<{ text: string; interim: boolean }>("transcript", (t) => {
         if (t.interim) {
           setState({ recording: "listening", liveText: t.text });
         } else if (t.text.trim()) {
-          setState({ recording: "transcribing", liveText: t.text });
+          // Texto definitivo → guardar en el historial (una sola vez, sin depender del "idle").
+          addTranscription(t.text);
+          setState({ recording: "done", liveText: t.text });
         }
       })
     );

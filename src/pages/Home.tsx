@@ -2,14 +2,35 @@ import { useState } from "react";
 import { Type, Flame, Clock, Mic, Zap, Cloud, Sparkles, Headphones, Copy } from "lucide-react";
 import { useTopBar } from "@/components/AppLayout";
 import { SegmentedTabs, HeroCard, IconBadge, StatCard, Kbd, EmptyState } from "@/components/ui";
-import { useStore } from "@/lib/store";
+import { useStore, type Transcription } from "@/lib/store";
 
-function timeAgo(ts: number) {
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+function dateGroupLabel(ts: number) {
+  const d = new Date(ts);
+  const day = new Date(d);
+  day.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yest = new Date(today);
+  yest.setDate(yest.getDate() - 1);
+  if (day.getTime() === today.getTime()) return "Today";
+  if (day.getTime() === yest.getTime()) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+}
+
+function timeLabel(ts: number) {
+  return new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+// Agrupa las transcripciones (ya ordenadas, más recientes primero) por fecha.
+function groupByDate(txs: Transcription[]) {
+  const groups: { label: string; items: Transcription[] }[] = [];
+  for (const t of txs) {
+    const label = dateGroupLabel(t.at);
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.items.push(t);
+    else groups.push({ label, items: [t] });
+  }
+  return groups;
 }
 
 export default function Home() {
@@ -54,25 +75,30 @@ export default function Home() {
             subtitle="Your saved transcriptions will appear here."
           />
         ) : (
-          <div className="space-y-2">
-            {txs.map((t) => (
-              <div
-                key={t.id}
-                className="group flex items-start justify-between gap-4 rounded-xl border border-line bg-app p-4 transition-colors hover:bg-card"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm text-ink">{t.text}</p>
-                  <p className="mt-1 text-xs text-muted">
-                    {timeAgo(t.at)} · {t.words} words
-                  </p>
+          <div className="space-y-6">
+            {groupByDate(txs).map((g) => (
+              <div key={g.label}>
+                <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-faint">
+                  {g.label}
                 </div>
-                <button
-                  onClick={() => navigator.clipboard?.writeText(t.text)}
-                  className="btn-ghost shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                  title="Copy"
-                >
-                  <Copy size={15} />
-                </button>
+                <div className="overflow-hidden rounded-2xl border border-line">
+                  {g.items.map((t) => (
+                    <div
+                      key={t.id}
+                      className="group flex items-start gap-4 border-b border-line px-4 py-3 transition-colors last:border-0 hover:bg-card"
+                    >
+                      <div className="w-16 shrink-0 pt-0.5 text-xs text-faint">{timeLabel(t.at)}</div>
+                      <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm text-ink">{t.text}</p>
+                      <button
+                        onClick={() => navigator.clipboard?.writeText(t.text)}
+                        className="btn-ghost shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                        title="Copy"
+                      >
+                        <Copy size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
