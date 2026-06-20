@@ -1,13 +1,13 @@
 ---
 name: build-tauri-locally
-description: Build this repo's Windows Tauri desktop installer locally on the user's PC. Use when the user asks to build, package, locate, time, troubleshoot, or verify local Windows release artifacts for Yawning Face STT, including exact dependencies such as Rust MSVC, Visual Studio C++ Build Tools, CMake, Node/npm, WiX/NSIS, and output installer paths.
+description: Build this repo's Windows Tauri desktop installer locally on the user's PC. Use when the user asks to build, package, locate, time, troubleshoot, or verify local Windows release artifacts for Yawning Face STT, including exact dependencies such as Rust MSVC, Visual Studio C++ Build Tools, CMake, Node/npm, WiX/NSIS, output installer paths, and when to prefer local builds over GitHub Actions.
 ---
 
 # Build Tauri Locally
 
 ## Overview
 
-Build the Windows release installer on this PC instead of relying on GitHub Actions. This is currently faster and more reliable for early Yawning Face STT releases.
+Build the Windows release installer on this PC. Use local builds for quick testing, emergency packaging, or when GitHub Actions is slow. GitHub Actions is now the preferred distribution path because the `v0.1.3` Windows release completed successfully and published downloadable assets.
 
 ## Known Working Environment
 
@@ -43,14 +43,19 @@ Observed local build on 2026-06-20:
 - Total `npm run tauri build`: about `3m 57s`
 - Rust release compile inside that build: about `3m 36s`
 - Output size:
-  - NSIS setup `.exe`: about `7.05 MB`
-  - MSI: about `9.75 MB`
+  - NSIS setup `.exe`: about `7 MB`
+  - MSI: about `10 MB`
+
+Observed GitHub Actions release build:
+
+- `v0.1.3` total workflow time: about `23m 42s`
+- `v0.1.3` Tauri build/upload step: about `18m 20s`
 
 Expected future timing:
 
 - Warm local build with no major Rust dependency changes: often under `1-2 min`
 - Local build after Rust/dependency changes or clean target: about `3-6 min`
-- GitHub hosted Windows build can take `15-20 min` on cold cache for this project
+- GitHub hosted Windows build: usually `20-30 min` for this project, depending on cache and runner speed
 
 ## Preflight
 
@@ -126,13 +131,13 @@ Set-Location ..
 Preferred installer for users:
 
 ```text
-src-tauri\target\release\bundle\nsis\Yawning Face STT_0.1.0_x64-setup.exe
+src-tauri\target\release\bundle\nsis\Yawning Face STT_<version>_x64-setup.exe
 ```
 
 Alternative MSI:
 
 ```text
-src-tauri\target\release\bundle\msi\Yawning Face STT_0.1.0_x64_en-US.msi
+src-tauri\target\release\bundle\msi\Yawning Face STT_<version>_x64_en-US.msi
 ```
 
 Built app executable:
@@ -141,18 +146,38 @@ Built app executable:
 src-tauri\target\release\vowen-clone.exe
 ```
 
-Open the output folder:
+Open the output folder for the current configured version:
 
 ```powershell
-Start-Process explorer.exe -ArgumentList "/select,`"$PWD\src-tauri\target\release\bundle\nsis\Yawning Face STT_0.1.0_x64-setup.exe`""
+$version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+$installer = "src-tauri\target\release\bundle\nsis\Yawning Face STT_${version}_x64-setup.exe"
+Start-Process explorer.exe -ArgumentList "/select,`"$PWD\$installer`""
 ```
 
 Generate checksums:
 
 ```powershell
-Get-FileHash "src-tauri\target\release\bundle\nsis\Yawning Face STT_0.1.0_x64-setup.exe" -Algorithm SHA256
-Get-FileHash "src-tauri\target\release\bundle\msi\Yawning Face STT_0.1.0_x64_en-US.msi" -Algorithm SHA256
+$version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+Get-FileHash "src-tauri\target\release\bundle\nsis\Yawning Face STT_${version}_x64-setup.exe" -Algorithm SHA256
+Get-FileHash "src-tauri\target\release\bundle\msi\Yawning Face STT_${version}_x64_en-US.msi" -Algorithm SHA256
 ```
+
+## GitHub Release Artifacts
+
+GitHub release asset names use dots in the product name:
+
+```text
+Yawning.Face.STT_<version>_x64-setup.exe
+Yawning.Face.STT_<version>_x64_en-US.msi
+```
+
+Example verified asset:
+
+```text
+https://github.com/EHxuban11/STT/releases/download/v0.1.3/Yawning.Face.STT_0.1.3_x64-setup.exe
+```
+
+If the repo is private, use `gh release download` or a logged-in browser session.
 
 ## Troubleshooting
 
@@ -163,3 +188,4 @@ Get-FileHash "src-tauri\target\release\bundle\msi\Yawning Face STT_0.1.0_x64_en-
 - Packaging downloads fail: retry with network access; Tauri may need WiX/NSIS on first package build.
 - SmartScreen warning on install: expected for unsigned Windows builds. This is code signing, not a build failure.
 - Installed app has no model yet: speech models are downloaded separately at runtime; they are not bundled into the installer.
+- Local build prints dead-code warnings: warnings about `ResolvedModel` or `fallback` are harmless unless the final command exits nonzero.
