@@ -44,5 +44,5 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Yawning Face STT v__VERSION__'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
