@@ -1,7 +1,16 @@
-import { Cloud, Languages, Globe, MonitorCog, AudioLines, Bird, Cpu } from "lucide-react";
-import { HeroCard, ProviderRow, DownloadIcon, SetupBadge, SectionLabel } from "@/components/ui";
+import { Cloud, Languages, Globe, MonitorCog, AudioLines, Bird, Cpu, Loader2, Download } from "lucide-react";
+import { HeroCard, ProviderRow, SetupBadge, SectionLabel } from "@/components/ui";
 import { CLOUD_STT, LOCAL_ENGLISH, LOCAL_MULTI, LocalModel } from "@/lib/data";
 import { useStore, setState } from "@/lib/store";
+import { downloadModel } from "@/lib/models";
+
+// "451 MB" / "1.4 GB" -> bytes aproximados
+function parseSize(s: string): number {
+  const m = s.match(/([\d.]+)\s*(MB|GB)/i);
+  if (!m) return 100_000_000;
+  const n = parseFloat(m[1]);
+  return Math.round(n * (m[2].toUpperCase() === "GB" ? 1e9 : 1e6));
+}
 
 function ModelTile({ kind }: { kind: LocalModel["kind"] }) {
   if (kind === "parakeet")
@@ -17,21 +26,41 @@ function ModelTile({ kind }: { kind: LocalModel["kind"] }) {
   );
 }
 
+function pct(d: { done: number; total: number }) {
+  return d.total ? Math.min(100, Math.round((d.done / d.total) * 100)) : 0;
+}
+
 export default function SpeechModels() {
   const selected = useStore((s) => s.selectedModelId);
+  const installed = useStore((s) => s.installed);
+  const downloads = useStore((s) => s.downloads);
 
   const renderModels = (group: string, models: LocalModel[]) =>
     models.map((m) => {
       const id = `${group}:${m.name}`;
+      const isInstalled = installed.includes(id);
+      const dl = downloads[id];
+      const onClick = () => {
+        if (dl) return;
+        if (isInstalled) setState({ selectedModelId: id, selectedModelName: m.name });
+        else downloadModel(id, parseSize(m.size));
+      };
+      const right = dl ? (
+        <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
+          <Loader2 size={14} className="animate-spin" /> {pct(dl)}%
+        </span>
+      ) : isInstalled ? undefined : (
+        <Download size={16} className="text-faint" />
+      );
       return (
         <ProviderRow
           key={id}
           logo={<ModelTile kind={m.kind} />}
           name={m.name}
-          sub={m.size}
+          sub={dl ? `Downloading… ${pct(dl)}%` : m.size}
           selected={selected === id}
-          onClick={() => setState({ selectedModelId: id, selectedModelName: m.name })}
-          right={<DownloadIcon />}
+          onClick={onClick}
+          right={right}
         />
       );
     });
@@ -88,7 +117,7 @@ export default function SpeechModels() {
         }
         name="NVIDIA CUDA"
         sub="RTX 2000+ · ~631 MB · No CUDA install needed"
-        right={<DownloadIcon />}
+        right={<Download size={16} className="text-faint" />}
       />
     </div>
   );

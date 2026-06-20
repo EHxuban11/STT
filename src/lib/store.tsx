@@ -19,7 +19,9 @@ export interface AppState {
   };
   workflowsEnabled: Record<string, boolean>;
   transcriptions: Transcription[];
-  // Estado efímero de grabación (no se persiste)
+  installed: string[]; // ids de modelos descargados
+  // Estado efímero (no se persiste)
+  downloads: Record<string, { done: number; total: number }>;
   recording: "idle" | "listening" | "transcribing" | "done" | null;
   liveText: string;
 }
@@ -47,13 +49,15 @@ const DEFAULT: AppState = {
   },
   workflowsEnabled: {},
   transcriptions: [],
+  installed: ["en:Parakeet V2"], // V2 viene "instalado" por defecto (como Vowen)
+  downloads: {},
   recording: null,
   liveText: "",
 };
 
 const KEY = "vowen.state";
 // Campos que NO se persisten en localStorage.
-const EPHEMERAL: (keyof AppState)[] = ["recording", "liveText"];
+const EPHEMERAL: (keyof AppState)[] = ["recording", "liveText", "downloads"];
 
 function load(): AppState {
   try {
@@ -87,6 +91,18 @@ export function setState(patch: Partial<AppState> | ((s: AppState) => Partial<Ap
 
 export function getState() {
   return state;
+}
+
+export function markInstalled(id: string) {
+  setState((s) => (s.installed.includes(id) ? {} : { installed: [...s.installed, id] }));
+}
+
+export function clearDownload(id: string) {
+  setState((s) => {
+    const d = { ...s.downloads };
+    delete d[id];
+    return { downloads: d };
+  });
 }
 
 /** Añade una transcripción al historial (y deja `liveText` con el último texto). */
