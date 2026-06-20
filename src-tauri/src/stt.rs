@@ -42,7 +42,7 @@ pub fn build_recognizer(model: &ResolvedModel, provider: &str) -> Result<Offline
     cfg.model_config.provider = Some(provider.to_string());
     cfg.model_config.num_threads = 2;
     cfg.model_config.debug = false;
-    OfflineRecognizer::create(&cfg).map_err(|e| anyhow!("recognizer create failed: {e:?}"))
+    OfflineRecognizer::create(&cfg).ok_or_else(|| anyhow!("recognizer create failed"))
 }
 
 /// Decodifica de una vez un buffer 16k mono f32.
@@ -67,7 +67,7 @@ pub fn build_vad(vad_model_path: &str) -> Result<VoiceActivityDetector> {
     vad_cfg.silero_vad = silero;
     vad_cfg.sample_rate = SAMPLE_RATE;
 
-    VoiceActivityDetector::create(&vad_cfg, 30.0).map_err(|e| anyhow!("vad create failed: {e:?}"))
+    VoiceActivityDetector::create(&vad_cfg, 30.0).ok_or_else(|| anyhow!("vad create failed"))
 }
 
 /// Motor de dictado en streaming: alimenta muestras 16k mono → texto interim + final.
