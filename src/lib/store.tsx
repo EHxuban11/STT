@@ -20,7 +20,9 @@ export interface AppState {
   workflowsEnabled: Record<string, boolean>;
   transcriptions: Transcription[];
   installed: string[]; // ids de BACKEND de modelos descargados (p.ej. "parakeet-tdt-0.6b-v2-int8")
+  activeModelId: string; // id de BACKEND del modelo activo (el que usa el dictado)
   insertMethod: "paste" | "type"; // método de inserción de texto
+  onboarded: boolean; // si el usuario completó el onboarding inicial
   // Estado efímero (no se persiste)
   downloads: Record<string, { done: number; total: number }>;
   recording: "idle" | "listening" | "transcribing" | "done" | null;
@@ -52,7 +54,9 @@ const DEFAULT: AppState = {
   workflowsEnabled: {},
   transcriptions: [],
   installed: [], // se rellena desde el backend (list_installed_models); en navegador, por descargas simuladas
+  activeModelId: "parakeet-tdt-0.6b-v2-int8",
   insertMethod: "paste",
+  onboarded: false,
   downloads: {},
   recording: null,
   liveText: "",

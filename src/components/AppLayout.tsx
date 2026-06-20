@@ -47,7 +47,13 @@ export function AppLayout() {
   // Reconciliar la lista de modelos instalados con lo que hay realmente en disco (escritorio).
   useEffect(() => {
     if (!isTauri) return;
-    invoke<string[]>("list_installed_models").then((ids) => ids && setInstalled(ids));
+    invoke<string[]>("list_installed_models").then((ids) => {
+      if (!ids) return;
+      setInstalled(ids);
+      // Sincronizar el modelo activo persistido con el backend (si está descargado).
+      const active = getState().activeModelId;
+      if (ids.includes(active)) invoke("set_active_model", { id: active });
+    });
     // Empujar el método de inserción persistido al backend.
     invoke("set_inject_mode", { mode: getState().insertMethod });
   }, []);

@@ -88,6 +88,25 @@ fn set_inject_mode(state: State<'_, Arc<AppState>>, mode: InjectMode) {
     *state.inject_mode.lock() = mode;
 }
 
+/// Cambia el modelo de voz activo: actualiza el id primario, invalida el motor cacheado
+/// y lo re-calienta en segundo plano con el nuevo modelo.
+#[tauri::command]
+fn set_active_model(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) {
+    *state.primary_id.lock() = id;
+    *state.engine.lock() = None; // invalidar caché (el actual es del modelo anterior)
+
+    let state2: Arc<AppState> = (*state).clone();
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        if let Ok(root) = app2.path().app_data_dir().map(|d| d.join("models")) {
+            if let Some(e) = build_engine(&state2, &root) {
+                *state2.engine.lock() = Some(e);
+                eprintln!("[stt] engine re-warmed for new active model");
+            }
+        }
+    });
+}
+
 #[tauri::command]
 async fn download_model(
     app: AppHandle,
@@ -368,6 +387,7 @@ pub fn run() {
             list_models,
             list_installed_models,
             set_inject_mode,
+            set_active_model,
             download_model
         ])
         .setup(move |app| {

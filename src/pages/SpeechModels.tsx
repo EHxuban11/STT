@@ -3,6 +3,7 @@ import { HeroCard, ProviderRow, SetupBadge, SectionLabel } from "@/components/ui
 import { CLOUD_STT, LOCAL_ENGLISH, LOCAL_MULTI, LocalModel } from "@/lib/data";
 import { useStore, setState } from "@/lib/store";
 import { downloadModel } from "@/lib/models";
+import { invoke } from "@/lib/tauri";
 
 // "451 MB" / "1.4 GB" -> bytes aproximados
 function parseSize(s: string): number {
@@ -43,8 +44,11 @@ export default function SpeechModels() {
       const isInstalled = !!bid && installed.includes(bid);
       const onClick = () => {
         if (dl || !bid) return; // descargando o aún no disponible
-        if (isInstalled) setState({ selectedModelId: id, selectedModelName: m.name });
-        else downloadModel(bid, parseSize(m.size));
+        if (isInstalled) {
+          // Activar este modelo (cambia el modelo de dictado y re-calienta el motor).
+          setState({ selectedModelId: id, selectedModelName: m.name, activeModelId: bid });
+          invoke("set_active_model", { id: bid });
+        } else downloadModel(bid, parseSize(m.size));
       };
       const right = !bid ? (
         <span className="pill bg-card text-[11px] text-faint">Soon</span>

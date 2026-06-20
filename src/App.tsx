@@ -1,5 +1,6 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import { ThemeProvider } from "./lib/theme";
+import { useStore } from "./lib/store";
 import { AppLayout } from "./components/AppLayout";
 import Home from "./pages/Home";
 import Transcribe from "./pages/Transcribe";
@@ -12,10 +13,13 @@ import Tones from "./pages/Tones";
 import Settings from "./pages/Settings";
 import Help from "./pages/Help";
 import Pill from "./pages/Pill";
+import Onboarding from "./pages/Onboarding";
 
-export default function App() {
+function Gate() {
+  const onboarded = useStore((s) => s.onboarded);
+  const isPill = useLocation().pathname === "/pill";
   return (
-    <ThemeProvider>
+    <>
       <Routes>
         {/* Ventana flotante de grabación (sin sidebar) */}
         <Route path="pill" element={<Pill />} />
@@ -32,6 +36,16 @@ export default function App() {
           <Route path="help" element={<Help />} />
         </Route>
       </Routes>
+      {/* Onboarding de primer arranque (no en la ventana flotante) */}
+      {!onboarded && !isPill && <Onboarding />}
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <Gate />
     </ThemeProvider>
   );
 }
