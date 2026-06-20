@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Tauri App"
+  short_description: "Release this Tauri desktop app through GitHub Actions."
+  default_prompt: "Prepare, tag, and publish a Tauri desktop app release using the repository release workflow."
