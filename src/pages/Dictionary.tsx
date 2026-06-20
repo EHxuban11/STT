@@ -42,7 +42,7 @@ export default function Dictionary() {
         <>
           <HeroCard
             title="Threads."
-            body="Group related phrases so Vowen recognises them as a single unit."
+            body="Group related phrases so Yawning Face recognises them as a single unit."
           />
           <div className="border-t border-line pt-8 text-center text-sm text-muted">
             No threads yet

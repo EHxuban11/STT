@@ -53,7 +53,7 @@ fn provider_default() -> String {
 
 #[tauri::command]
 fn get_app_info() -> serde_json::Value {
-    serde_json::json!({ "name": "Vowen", "version": env!("CARGO_PKG_VERSION") })
+    serde_json::json!({ "name": "Yawning Face STT", "version": env!("CARGO_PKG_VERSION") })
 }
 
 #[tauri::command]
@@ -196,7 +196,7 @@ fn stop_session(state: &Arc<AppState>) {
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Open Vowen", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open Yawning Face", true, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let stop = MenuItem::with_id(app, "stop", "Stop Recording", true, None::<&str>)?;
     let copy_last = MenuItem::with_id(app, "copy_last", "Copy Last Transcription", true, None::<&str>)?;
@@ -204,7 +204,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let sep2 = PredefinedMenuItem::separator(app)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Vowen", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Yawning Face", true, None::<&str>)?;
 
     let menu = Menu::with_items(
         app,
@@ -213,7 +213,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
     TrayIconBuilder::with_id("main-tray")
         .icon(app.default_window_icon().unwrap().clone())
-        .tooltip("Vowen")
+        .tooltip("Yawning Face STT")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {

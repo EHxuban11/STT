@@ -144,10 +144,10 @@ function GeneralSection() {
     <Card>
       <SettingRow
         label="Software Updates"
-        help="Check for the latest version of Vowen"
+        help="Check for the latest version of Yawning Face"
         control={<button className="btn-secondary px-3.5 py-2 text-[13px]">Check for Updates</button>}
       />
-      <SettingRow label="Open at Login" help="Automatically launch Vowen when you log into your computer" control={<Toggle checked={g.openAtLogin} onChange={set("openAtLogin")} />} />
+      <SettingRow label="Open at Login" help="Automatically launch Yawning Face when you log into your computer" control={<Toggle checked={g.openAtLogin} onChange={set("openAtLogin")} />} />
       <SettingRow label="Start Minimized to Tray" help="Start the app minimized to the system tray (access via tray icon only)" control={<Toggle checked={g.startMinimized} onChange={set("startMinimized")} />} />
       <SettingRow label="Auto-paste transcription" help="Automatically paste transcribed text into focused field" control={<Toggle checked={g.autopaste} onChange={set("autopaste")} />} />
       <SettingRow label="Text Insertion Method" help={'How transcribed text is inserted. "Paste method" uses the clipboard; "Direct insertion" types characters directly — the clipboard is never read, written, or modified in any way.'} control={<Dropdown value="Paste method" />} />
@@ -212,7 +212,7 @@ function RecordingSection() {
         }
       />
       <SettingRow label="Show idle pill" help="Display a minimized bar at the screen edge when idle. Hover to expand and start a recording." control={<Toggle checked={idle} onChange={setIdle} />} />
-      <SettingRow label="Save audio recordings" help="Keep .wav audio files in ~/Documents/Vowen Recordings" control={<Toggle checked={saveAudio} onChange={setSaveAudio} />} />
+      <SettingRow label="Save audio recordings" help="Keep .wav audio files in ~/Documents/Yawning Face Recordings" control={<Toggle checked={saveAudio} onChange={setSaveAudio} />} />
       <SettingRow label="Mute system audio during recording" help="Automatically mute system audio when recording starts and unmute after transcription is pasted" control={<ProPill />} />
       <SettingRow label="Real-time transcription preview" help="Show a live preview of your transcription below the recording indicator while speaking." control={<ProPill />} />
     </Card>
@@ -277,7 +277,7 @@ function SyncSection() {
         <p className="mb-4 text-sm text-muted">
           Sync your dictionary, threads, expansions, workflows, tones, preferences, hotkeys, and
           transcription data across devices. Your data is stored in your own cloud storage folder —
-          Vowen never sees it.
+          Yawning Face never sees it.
         </p>
         <Card>
           {providers.map((p) => (

@@ -62,7 +62,7 @@ jobs:
           APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'Vowen Clone v__VERSION__'
+          releaseName: 'Yawning Face STT v__VERSION__'
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

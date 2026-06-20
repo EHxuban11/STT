@@ -3,9 +3,9 @@
 <plist version="1.0">
   <dict>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Vowen records audio to transcribe your speech locally.</string>
+    <string>Yawning Face STT records audio to transcribe your speech locally.</string>
     <key>NSInputMonitoringUsageDescription</key>
-    <string>Vowen detects your global dictation hotkey (Ctrl/Cmd + Shift).</string>
+    <string>Yawning Face STT detects your global dictation hotkey (Ctrl/Cmd + Shift).</string>
     <key>LSUIElement</key>
     <false/>
   </dict>

@@ -72,7 +72,9 @@ export function Sidebar() {
 
       <div className="flex items-center gap-2 px-4 pb-4 pt-1">
         <Logo size={28} />
-        <span className="text-lg font-bold tracking-tight text-ink">Vowen</span>
+        <span className="text-[15px] font-bold leading-tight tracking-tight text-ink">
+          Yawning Face
+        </span>
         <span className="pill border border-line text-muted">Free</span>
       </div>
 
@@ -83,7 +85,7 @@ export function Sidebar() {
         ))}
 
         <div className="mb-1 mt-5 flex items-center gap-1.5 px-3 text-xs font-semibold uppercase tracking-wide text-brand">
-          Vowen AI
+          Yawning Face AI
           <Pencil size={11} />
         </div>
         {aiNav.map((n) => (

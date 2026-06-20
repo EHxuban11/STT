@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Vowen",
+  "productName": "Yawning Face STT",
   "version": "0.1.0",
-  "identifier": "com.vowenclone.app",
+  "identifier": "org.yawningface.stt",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Vowen",
+        "title": "Yawning Face STT",
         "width": 1200,
         "height": 800,
         "minWidth": 880,
@@ -43,8 +43,5 @@
       "entitlements": "entitlements.plist",
       "minimumSystemVersion": "11.0"
     }
-  },
-  "plugins": {
-    "global-shortcut": {}
   }
 }
