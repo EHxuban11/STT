@@ -1,0 +1,66 @@
+{
+  "models": [
+    {
+      "id": "parakeet-tdt-0.6b-v3-int8",
+      "kind": "transducer",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
+      "sha256": null,
+      "bytes": 703000000,
+      "files": {
+        "type": "transducer",
+        "encoder": "encoder.int8.onnx",
+        "decoder": "decoder.int8.onnx",
+        "joiner": "joiner.int8.onnx",
+        "tokens": "tokens.txt"
+      }
+    },
+    {
+      "id": "parakeet-tdt-0.6b-v2-int8",
+      "kind": "transducer",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
+      "sha256": null,
+      "bytes": 693000000,
+      "files": {
+        "type": "transducer",
+        "encoder": "encoder.int8.onnx",
+        "decoder": "decoder.int8.onnx",
+        "joiner": "joiner.int8.onnx",
+        "tokens": "tokens.txt"
+      }
+    },
+    {
+      "id": "whisper-base.en",
+      "kind": "whisper",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.en.tar.bz2",
+      "sha256": null,
+      "bytes": 120000000,
+      "files": {
+        "type": "whisper",
+        "encoder": "base.en-encoder.int8.onnx",
+        "decoder": "base.en-decoder.int8.onnx",
+        "tokens": "base.en-tokens.txt"
+      }
+    },
+    {
+      "id": "whisper-tiny.en",
+      "kind": "whisper",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2",
+      "sha256": null,
+      "bytes": 50000000,
+      "files": {
+        "type": "whisper",
+        "encoder": "tiny.en-encoder.int8.onnx",
+        "decoder": "tiny.en-decoder.int8.onnx",
+        "tokens": "tiny.en-tokens.txt"
+      }
+    },
+    {
+      "id": "silero-vad",
+      "kind": "vad",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+      "sha256": null,
+      "bytes": 2200000,
+      "files": { "type": "vad", "model": "silero_vad.onnx" }
+    }
+  ]
+}

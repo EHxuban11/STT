@@ -1,0 +1,62 @@
+[package]
+name = "vowen-clone"
+version = "0.1.0"
+description = "Vowen clone — voice-first dictation for the desktop"
+authors = ["you"]
+edition = "2021"
+rust-version = "1.85"
+
+[lib]
+name = "vowen_clone_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# --- Tauri core + plugins ---
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = "2"          # camino PTT alternativo (combo con tecla no-modificadora)
+tauri-plugin-clipboard-manager = "2"        # portapapeles para inyección por pegado
+
+# --- Motor de inferencia (crate oficial k2-fsa; enlace estático, libs auto-descargadas) ---
+sherpa-onnx = "1.13"
+
+# --- Captura de audio + DSP ---
+cpal = "0.16"
+ringbuf = "0.4"
+rubato = "0.16"
+
+# --- Hotkey global (hook de bajo nivel, hold de solo-modificadores) ---
+rdevin = "0.1"
+
+# --- Síntesis de entrada (pegar + teclear) ---
+enigo = "0.6"
+
+# --- Descarga / extracción / verificación de modelos ---
+reqwest = { version = "0.12", features = ["stream", "rustls-tls"], default-features = false }
+tar = "0.4"
+bzip2 = "0.5"
+sha2 = "0.10"
+futures-util = "0.3"
+
+# --- Varios ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+macos-accessibility-client = "0.0"
+
+[features]
+default = []
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

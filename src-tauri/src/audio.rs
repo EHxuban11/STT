@@ -1,0 +1,133 @@
+use anyhow::{anyhow, Result};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{SampleFormat, StreamConfig};
+use ringbuf::traits::{Consumer, Producer, Split};
+use ringbuf::HeapRb;
+use rubato::{FftFixedIn, Resampler};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+pub const TARGET_SR: usize = 16_000;
+const RESAMPLE_CHUNK: usize = 1024;
+
+/// Stream de captura vivo + sample rate de origen.
+pub struct Capture {
+    pub stream: cpal::Stream,
+    pub src_sr: u32,
+}
+
+/// Construye un stream de entrada por defecto que mezcla a mono f32 y empuja a `prod`.
+pub fn start_capture(mut prod: impl Producer<Item = f32> + Send + 'static) -> Result<Capture> {
+    let host = cpal::default_host();
+    let device = host
+        .default_input_device()
+        .ok_or_else(|| anyhow!("no default input device"))?;
+    let supported = device.default_input_config()?;
+    let src_sr = supported.sample_rate().0;
+    let channels = supported.channels() as usize;
+    let cfg: StreamConfig = supported.config();
+    let err_fn = |e| eprintln!("cpal stream error: {e}");
+
+    macro_rules! mono_push {
+        ($ty:ty, $to_f32:expr) => {{
+            device.build_input_stream(
+                &cfg,
+                move |data: &[$ty], _: &cpal::InputCallbackInfo| {
+                    for frame in data.chunks_exact(channels) {
+                        let mut acc = 0.0f32;
+                        for &s in frame {
+                            acc += ($to_f32)(s);
+                        }
+                        let _ = prod.try_push(acc / channels as f32);
+                    }
+                },
+                err_fn,
+                None,
+            )?
+        }};
+    }
+
+    let stream = match supported.sample_format() {
+        SampleFormat::F32 => mono_push!(f32, |s: f32| s),
+        SampleFormat::I16 => mono_push!(i16, |s: i16| s as f32 / 32768.0),
+        SampleFormat::U16 => mono_push!(u16, |s: u16| (s as f32 - 32768.0) / 32768.0),
+        other => return Err(anyhow!("unsupported sample format {other:?}")),
+    };
+    stream.play()?;
+    Ok(Capture { stream, src_sr })
+}
+
+/// Resampler en streaming src_sr -> 16k mono.
+pub struct Resampler16k {
+    inner: FftFixedIn<f32>,
+    src_sr: usize,
+    in_buf: Vec<f32>,
+}
+
+impl Resampler16k {
+    pub fn new(src_sr: u32) -> Result<Self> {
+        let inner = FftFixedIn::<f32>::new(src_sr as usize, TARGET_SR, RESAMPLE_CHUNK, 1, 1)?;
+        Ok(Self {
+            inner,
+            src_sr: src_sr as usize,
+            in_buf: Vec::with_capacity(RESAMPLE_CHUNK * 2),
+        })
+    }
+
+    pub fn push(&mut self, mono: &[f32], out: &mut Vec<f32>) -> Result<()> {
+        if self.src_sr == TARGET_SR {
+            out.extend_from_slice(mono);
+            return Ok(());
+        }
+        self.in_buf.extend_from_slice(mono);
+        while self.in_buf.len() >= RESAMPLE_CHUNK {
+            let chunk: Vec<f32> = self.in_buf.drain(..RESAMPLE_CHUNK).collect();
+            let waves_in = vec![chunk];
+            let waves_out = self.inner.process(&waves_in, None)?;
+            out.extend_from_slice(&waves_out[0]);
+        }
+        Ok(())
+    }
+
+    pub fn flush(&mut self, out: &mut Vec<f32>) -> Result<()> {
+        if self.src_sr == TARGET_SR || self.in_buf.is_empty() {
+            return Ok(());
+        }
+        let mut chunk = std::mem::take(&mut self.in_buf);
+        chunk.resize(RESAMPLE_CHUNK, 0.0);
+        let waves_out = self.inner.process(&vec![chunk], None)?;
+        out.extend_from_slice(&waves_out[0]);
+        Ok(())
+    }
+}
+
+/// Ring para ~2s @ 48k.
+pub fn make_ring() -> (impl Producer<Item = f32>, impl Consumer<Item = f32>) {
+    HeapRb::<f32>::new(48_000 * 2).split()
+}
+
+pub fn drain_into(cons: &mut impl Consumer<Item = f32>, scratch: &mut Vec<f32>) -> usize {
+    scratch.clear();
+    let mut tmp = [0.0f32; 2048];
+    let mut total = 0;
+    loop {
+        let n = cons.pop_slice(&mut tmp);
+        if n == 0 {
+            break;
+        }
+        scratch.extend_from_slice(&tmp[..n]);
+        total += n;
+    }
+    total
+}
+
+pub type RecordingFlag = Arc<AtomicBool>;
+pub fn flag(v: bool) -> RecordingFlag {
+    Arc::new(AtomicBool::new(v))
+}
+pub fn is_recording(f: &RecordingFlag) -> bool {
+    f.load(Ordering::Relaxed)
+}
+pub fn set_recording(f: &RecordingFlag, v: bool) {
+    f.store(v, Ordering::Relaxed)
+}

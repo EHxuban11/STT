@@ -1,0 +1,15 @@
+# Dependencias
+node_modules/
+dist/
+dist-ssr/
+
+# Análisis del instalador de Vowen (artefactos pesados, no versionar)
+_vowen_analysis/
+
+# Tauri
+src-tauri/target/
+
+# Logs / temporales
+*.log
+.DS_Store
+.vite/

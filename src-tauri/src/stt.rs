@@ -1,0 +1,150 @@
+// NOTA: algunos nombres de API de sherpa-onnx (VAD: flush/front/pop/samples, y campos
+// de VadModelConfig) están marcados en BACKEND-PLAN.md como "verificar con `cargo doc`"
+// para la versión fijada antes de confiar en ellos. Construimos los configs vía
+// default() + asignación de campos (forma recomendada por los ejemplos del crate).
+use anyhow::{anyhow, Result};
+use sherpa_onnx::{
+    OfflineRecognizer, OfflineRecognizerConfig, OfflineTransducerModelConfig,
+    OfflineWhisperModelConfig, SileroVadModelConfig, VadModelConfig, VoiceActivityDetector,
+};
+
+use crate::models::ResolvedModel;
+
+pub const VAD_WINDOW: usize = 512; // tamaño de ventana Silero REQUERIDO
+pub const SAMPLE_RATE: i32 = 16_000;
+
+/// Crea un OfflineRecognizer a partir de un modelo resuelto (transducer o whisper).
+pub fn build_recognizer(model: &ResolvedModel, provider: &str) -> Result<OfflineRecognizer> {
+    let mut cfg = OfflineRecognizerConfig::default();
+    match model {
+        ResolvedModel::Transducer { encoder, decoder, joiner, tokens, .. } => {
+            cfg.model_config.transducer = OfflineTransducerModelConfig {
+                encoder: Some(encoder.to_string_lossy().into_owned()),
+                decoder: Some(decoder.to_string_lossy().into_owned()),
+                joiner: Some(joiner.to_string_lossy().into_owned()),
+            };
+            cfg.model_config.tokens = Some(tokens.to_string_lossy().into_owned());
+        }
+        ResolvedModel::Whisper { encoder, decoder, tokens, .. } => {
+            cfg.model_config.whisper = OfflineWhisperModelConfig {
+                encoder: Some(encoder.to_string_lossy().into_owned()),
+                decoder: Some(decoder.to_string_lossy().into_owned()),
+                language: Some("en".to_string()),
+                task: Some("transcribe".to_string()),
+                tail_paddings: 0,
+                enable_token_timestamps: false,
+                enable_segment_timestamps: false,
+            };
+            cfg.model_config.tokens = Some(tokens.to_string_lossy().into_owned());
+        }
+        ResolvedModel::Vad { .. } => return Err(anyhow!("VAD model passed to recognizer builder")),
+    }
+    cfg.model_config.provider = Some(provider.to_string());
+    cfg.model_config.num_threads = 2;
+    cfg.model_config.debug = false;
+    OfflineRecognizer::create(&cfg).map_err(|e| anyhow!("recognizer create failed: {e:?}"))
+}
+
+/// Decodifica de una vez un buffer 16k mono f32.
+pub fn transcribe(rec: &OfflineRecognizer, samples: &[f32]) -> String {
+    let stream = rec.create_stream();
+    stream.accept_waveform(SAMPLE_RATE, samples);
+    rec.decode(&stream);
+    stream.get_result().map(|r| r.text).unwrap_or_default()
+}
+
+/// Construye un detector Silero VAD.
+pub fn build_vad(vad_model_path: &str) -> Result<VoiceActivityDetector> {
+    let mut silero = SileroVadModelConfig::default();
+    silero.model = Some(vad_model_path.to_string());
+    silero.threshold = 0.5;
+    silero.min_silence_duration = 0.25;
+    silero.min_speech_duration = 0.25;
+    silero.max_speech_duration = 8.0;
+    silero.window_size = VAD_WINDOW as i32;
+
+    let mut vad_cfg = VadModelConfig::default();
+    vad_cfg.silero_vad = silero;
+    vad_cfg.sample_rate = SAMPLE_RATE;
+
+    VoiceActivityDetector::create(&vad_cfg, 30.0).map_err(|e| anyhow!("vad create failed: {e:?}"))
+}
+
+/// Motor de dictado en streaming: alimenta muestras 16k mono → texto interim + final.
+pub struct Engine {
+    pub recognizer: OfflineRecognizer,
+    pub fallback: Option<OfflineRecognizer>,
+    pub vad: VoiceActivityDetector,
+    pending: Vec<f32>,
+    interim_buf: Vec<f32>,
+    pub final_text: String,
+}
+
+impl Engine {
+    pub fn new(
+        recognizer: OfflineRecognizer,
+        fallback: Option<OfflineRecognizer>,
+        vad: VoiceActivityDetector,
+    ) -> Self {
+        Self {
+            recognizer,
+            fallback,
+            vad,
+            pending: Vec::new(),
+            interim_buf: Vec::new(),
+            final_text: String::new(),
+        }
+    }
+
+    /// Alimenta muestras 16k mono. Devuelve los textos de segmentos FINALES producidos.
+    pub fn feed(&mut self, samples: &[f32]) -> Vec<String> {
+        let mut finals = Vec::new();
+        self.pending.extend_from_slice(samples);
+        self.interim_buf.extend_from_slice(samples);
+
+        while self.pending.len() >= VAD_WINDOW {
+            let window: Vec<f32> = self.pending.drain(..VAD_WINDOW).collect();
+            self.vad.accept_waveform(&window);
+            while let Some(seg) = self.vad.front() {
+                let text = transcribe(&self.recognizer, seg.samples());
+                let text = text.trim();
+                if !text.is_empty() {
+                    self.final_text.push_str(text);
+                    self.final_text.push(' ');
+                    finals.push(text.to_string());
+                }
+                self.vad.pop();
+                self.interim_buf.clear();
+            }
+        }
+        finals
+    }
+
+    /// Transcripción interina del buffer en curso (llamar cada ~200ms).
+    pub fn interim(&self) -> String {
+        if self.interim_buf.len() < SAMPLE_RATE as usize / 5 {
+            return String::new();
+        }
+        transcribe(&self.recognizer, &self.interim_buf)
+    }
+
+    /// Al parar: vacía el habla restante y finaliza.
+    pub fn finish(&mut self) -> String {
+        if !self.pending.is_empty() {
+            let mut last = std::mem::take(&mut self.pending);
+            last.resize(VAD_WINDOW, 0.0);
+            self.vad.accept_waveform(&last);
+        }
+        self.vad.flush();
+        while let Some(seg) = self.vad.front() {
+            let text = transcribe(&self.recognizer, seg.samples());
+            let text = text.trim();
+            if !text.is_empty() {
+                self.final_text.push_str(text);
+                self.final_text.push(' ');
+            }
+            self.vad.pop();
+        }
+        self.final_text.trim().to_string()
+    }
+}

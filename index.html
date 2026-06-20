@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vowen</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Ayuda de demo: ?seed precarga transcripciones de ejemplo (no afecta al uso normal). -->
+    <script>
+      if (new URLSearchParams(location.search).has("seed")) {
+        const now = Date.now();
+        const mk = (text, mins) => ({
+          id: String(now - mins * 60000),
+          text,
+          at: now - mins * 60000,
+          words: text.trim().split(/\s+/).length,
+        });
+        const txs = [
+          mk("Let's ship the production build this week and add the cloud providers next.", 2),
+          mk("Reminder to follow up with the team about the meeting notes feature.", 18),
+          mk("This is a local transcription produced by the Parakeet model running on your device.", 75),
+        ];
+        const prev = JSON.parse(localStorage.getItem("vowen.state") || "{}");
+        localStorage.setItem("vowen.state", JSON.stringify({ ...prev, transcriptions: txs }));
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Tema claro (por defecto) — tonos tomados de las capturas de Vowen */
+    --app-bg: 250 250 250;        /* #FAFAFA contenido */
+    --sidebar-bg: 246 246 245;    /* #F6F6F5 sidebar */
+    --card-bg: 244 244 245;       /* #F4F4F5 tarjetas suaves */
+    --card-hover: 237 237 238;
+    --line: 228 228 231;          /* #E4E4E7 bordes sutiles */
+    --ink: 24 24 27;              /* #18181B texto principal */
+    --muted: 113 113 122;         /* #71717A texto secundario */
+    --faint: 161 161 170;         /* #A1A1AA texto terciario */
+    --brand: 124 108 240;         /* #7C6CF0 morado Vowen */
+    --brand-soft: 237 233 254;    /* fondo morado claro */
+    --accent-btn: 24 24 27;       /* botón primario negro */
+    --success: 34 197 94;         /* #22C55E verde ok */
+  }
+
+  .dark {
+    --app-bg: 18 18 20;
+    --sidebar-bg: 24 24 27;
+    --card-bg: 33 33 38;
+    --card-hover: 42 42 48;
+    --line: 39 39 42;
+    --ink: 244 244 245;
+    --muted: 161 161 170;
+    --faint: 113 113 122;
+    --brand: 139 124 248;
+    --brand-soft: 49 46 78;
+    --accent-btn: 244 244 245;
+    --success: 34 197 94;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-app text-ink font-sans antialiased;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Scrollbar discreta estilo app de escritorio */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-line rounded-full;
+    background-clip: padding-box;
+    border: 3px solid transparent;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-faint;
+    background-clip: padding-box;
+    border: 3px solid transparent;
+  }
+}
+
+@layer components {
+  /* Botón primario (negro / blanco en oscuro) */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-accentbtn px-4 py-2.5
+      text-sm font-semibold text-app shadow-soft transition-all hover:opacity-90 active:scale-[0.99];
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-app px-4 py-2.5
+      text-sm font-semibold text-ink transition-colors hover:bg-card;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-2.5 py-1.5 text-sm
+      text-muted transition-colors hover:bg-card hover:text-ink;
+  }
+
+  /* Tarjeta suave estándar */
+  .card-soft {
+    @apply rounded-2xl bg-card p-5;
+  }
+
+  /* Atajo de teclado (kbd) */
+  .kbd {
+    @apply inline-flex min-w-[26px] items-center justify-center rounded-md border border-line
+      bg-app px-1.5 py-0.5 text-xs font-medium text-ink shadow-soft;
+  }
+
+  /* Píldora / badge */
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium;
+  }
+}
+
+/* Zona arrastrable de la ventana (para Tauri) */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
