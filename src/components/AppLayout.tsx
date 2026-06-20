@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { Sidebar } from "./Sidebar";
 import { WindowControls } from "./WindowControls";
 import { RecordingOverlay } from "./RecordingOverlay";
-import { on } from "@/lib/tauri";
+import { on, isTauri } from "@/lib/tauri";
 import { useDictation } from "@/lib/dictation";
 
 // Permite a cada página inyectar contenido en la barra superior (acciones, tabs, etc.).
@@ -56,7 +56,8 @@ export function AppLayout() {
           </div>
         </main>
       </div>
-      <RecordingOverlay />
+      {/* En escritorio (Tauri) el indicador es la ventana flotante; en navegador, el overlay de demo. */}
+      {!isTauri && <RecordingOverlay />}
     </TopBarCtx.Provider>
   );
 }

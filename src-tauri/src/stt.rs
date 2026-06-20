@@ -70,6 +70,36 @@ pub fn build_vad(vad_model_path: &str) -> Result<VoiceActivityDetector> {
     VoiceActivityDetector::create(&vad_cfg, 30.0).ok_or_else(|| anyhow!("vad create failed"))
 }
 
+/// Limpieza ligera del dictado: quita muletillas ("um", "uh"…), normaliza espacios
+/// y capitaliza la primera letra. Hace que el texto se sienta mucho más pulido.
+pub fn clean_text(text: &str) -> String {
+    const FILLERS: &[&str] = &["um", "uh", "uhm", "uhh", "hmm", "mm", "mmm", "er", "erm", "ah"];
+    let kept: Vec<&str> = text
+        .split_whitespace()
+        .filter(|w| {
+            let bare: String = w
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+                .to_lowercase();
+            !FILLERS.contains(&bare.as_str())
+        })
+        .collect();
+
+    let mut s = kept.join(" ");
+    for (a, b) in [(" ,", ","), (" .", "."), (" ?", "?"), (" !", "!"), ("  ", " ")] {
+        s = s.replace(a, b);
+    }
+    let s = s.trim().to_string();
+
+    // Capitalizar la primera letra.
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => s,
+    }
+}
+
 /// Motor de dictado en streaming: alimenta muestras 16k mono → texto interim + final.
 pub struct Engine {
     pub recognizer: OfflineRecognizer,
@@ -126,6 +156,15 @@ impl Engine {
             return String::new();
         }
         transcribe(&self.recognizer, &self.interim_buf)
+    }
+
+    /// Reinicia el estado de sesión (reutilizando el modelo ya cargado en memoria).
+    pub fn reset(&mut self) {
+        self.vad.reset();
+        self.vad.clear();
+        self.pending.clear();
+        self.interim_buf.clear();
+        self.final_text.clear();
     }
 
     /// Al parar: vacía el habla restante y finaliza.

@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Light / warm near-white is the DEFAULT (ship light, no dark mode). */
+  --background: #fefdfb; /* warm near-white canvas */
+  --foreground: #2a2720; /* warm near-black ink */
+
+  --card: #ffffff;
+  --card-foreground: #2a2720;
+
+  /* Amber is an ACCENT only — and text ON amber is dark ink, never white. */
+  --primary: #ebb303;
+  --primary-foreground: #2a2720;
+
+  --secondary: #f8f6f1;
+  --secondary-foreground: #2a2720;
+
+  --muted: #f8f6f1;
+  --muted-foreground: #736d5e;
+
+  --accent: #f5f2ea;
+  --accent-foreground: #2a2720;
+
+  --border: #ebe8df;
+  --input: #ebe8df;
+  --ring: #ebb303;
+
+  --radius: 1rem;
+}
+
+* {
+  box-sizing: border-box;
+  border-color: var(--border);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Headings always use Bricolage with the brand letter-spacing. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-bricolage), var(--font-inter), system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+/* Warm amber selection. */
+::selection {
+  background: rgba(235, 179, 3, 0.3);
+  color: #2a2720;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+}
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+::-webkit-scrollbar-thumb {
+  background: #e0dccf;
+  border: 3px solid var(--background);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #d2ccb9;
+}

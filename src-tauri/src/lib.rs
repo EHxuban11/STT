@@ -10,6 +10,7 @@ use audio::{
 };
 use models::{Catalog, ResolvedModel};
 use parking_lot::Mutex;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{
@@ -36,6 +37,8 @@ struct AppState {
     catalog: Catalog,
     recording: RecordingFlag,
     capture: Mutex<Option<Capture>>,
+    /// Motor STT cacheado: se carga una vez y se reutiliza entre dictados.
+    engine: Mutex<Option<stt::Engine>>,
     primary_id: Mutex<String>,
     fallback_id: Mutex<Option<String>>,
     vad_id: Mutex<String>,
@@ -94,34 +97,68 @@ fn show_main(app: &AppHandle) {
     }
 }
 
-/// Inicia una sesión de grabación: resuelve modelos, construye el motor y lanza el hilo consumidor.
+fn show_pill(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("pill") {
+        let _ = w.show();
+    }
+}
+
+fn hide_pill(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("pill") {
+        let _ = w.hide();
+    }
+}
+
+/// Nivel RMS (0..1) de un bloque de muestras, para el medidor de la isla.
+fn rms(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum: f32 = samples.iter().map(|x| x * x).sum();
+    (sum / samples.len() as f32).sqrt()
+}
+
+/// Construye el motor STT (recognizer + VAD) si los modelos están descargados.
+/// Es lento (carga los ONNX en memoria) — por eso lo cacheamos y reutilizamos.
+fn build_engine(state: &Arc<AppState>, root: &Path) -> Option<stt::Engine> {
+    let resolve_id =
+        |id: &str| -> Option<ResolvedModel> { state.catalog.get(id).and_then(|e| models::resolve(root, e)) };
+    let provider = state.provider.lock().clone();
+    let primary = resolve_id(&state.primary_id.lock())?;
+    let vad_model = match resolve_id(&state.vad_id.lock())? {
+        ResolvedModel::Vad { model } => model,
+        _ => return None,
+    };
+    let recognizer = stt::build_recognizer(&primary, &provider).ok()?;
+    let fb = state
+        .fallback_id
+        .lock()
+        .as_ref()
+        .and_then(|id| resolve_id(id))
+        .and_then(|m| stt::build_recognizer(&m, &provider).ok());
+    let vad = stt::build_vad(&vad_model.to_string_lossy()).ok()?;
+    Some(stt::Engine::new(recognizer, fb, vad))
+}
+
+/// Inicia una sesión: SIEMPRE captura audio y muestra la isla flotante con el nivel de voz.
+/// Si hay modelo, transcribe e inserta el texto al soltar. El motor se carga UNA vez y se reutiliza.
 fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
     if is_recording(&state.recording) {
         return Ok(());
     }
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?.join("models");
 
-    let resolve_id = |id: &str| -> Result<ResolvedModel, String> {
-        let e = state.catalog.get(id).ok_or("unknown model")?;
-        models::resolve(&root, e).ok_or_else(|| format!("model {id} not downloaded"))
-    };
-
-    let primary = resolve_id(&state.primary_id.lock())?;
-    let fallback = state.fallback_id.lock().as_ref().and_then(|id| resolve_id(id).ok());
-    let vad_model = match resolve_id(&state.vad_id.lock())? {
-        ResolvedModel::Vad { model } => model,
-        _ => return Err("vad id is not a VAD model".into()),
-    };
-    let provider = state.provider.lock().clone();
-
-    let recognizer = stt::build_recognizer(&primary, &provider).map_err(|e| e.to_string())?;
-    let fb = fallback
-        .as_ref()
-        .map(|m| stt::build_recognizer(m, &provider))
-        .transpose()
-        .map_err(|e| e.to_string())?;
-    let vad = stt::build_vad(&vad_model.to_string_lossy()).map_err(|e| e.to_string())?;
-    let mut engine = stt::Engine::new(recognizer, fb, vad);
+    // Reutilizar el motor cacheado; construirlo la primera vez (lento solo esa vez).
+    let mut engine = state.engine.lock().take();
+    if engine.is_none() {
+        engine = build_engine(state, &root);
+        if engine.is_none() {
+            eprintln!("[stt] no model downloaded — recording for audio level only");
+        }
+    }
+    if let Some(e) = engine.as_mut() {
+        e.reset();
+    }
 
     let (prod, mut cons) = make_ring();
     let capture = start_capture(prod).map_err(|e| e.to_string())?;
@@ -129,18 +166,16 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
     *state.capture.lock() = Some(capture);
 
     set_recording(&state.recording, true);
+    show_pill(app);
+    let _ = app.emit("state", "recording");
+
     let recording = state.recording.clone();
-    let app_for_thread = app.clone();
-    let state_for_thread = state.clone();
+    let app2 = app.clone();
+    let state2 = state.clone();
 
     std::thread::spawn(move || {
-        let mut resampler = match Resampler16k::new(src_sr) {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("resampler: {e}");
-                return;
-            }
-        };
+        let mut engine = engine;
+        let mut resampler = Resampler16k::new(src_sr).ok();
         let mut scratch = Vec::with_capacity(8192);
         let mut resampled = Vec::with_capacity(TARGET_SR);
         let mut last_interim = Instant::now();
@@ -148,51 +183,66 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
         while is_recording(&recording) {
             let n = audio::drain_into(&mut cons, &mut scratch);
             if n == 0 {
-                std::thread::sleep(Duration::from_millis(5));
+                std::thread::sleep(Duration::from_millis(8));
                 continue;
             }
-            resampled.clear();
-            if resampler.push(&scratch, &mut resampled).is_err() {
-                continue;
-            }
-            for txt in engine.feed(&resampled) {
-                let _ = app_for_thread.emit("transcript", TranscriptEvent { text: txt, interim: false });
-            }
-            if last_interim.elapsed() >= Duration::from_millis(200) {
-                let it = engine.interim();
-                if !it.is_empty() {
-                    let _ = app_for_thread.emit("transcript", TranscriptEvent { text: it, interim: true });
+            // Nivel de audio (RMS) para la isla flotante.
+            let _ = app2.emit("audio-level", rms(&scratch));
+
+            if let (Some(rs), Some(eng)) = (resampler.as_mut(), engine.as_mut()) {
+                resampled.clear();
+                if rs.push(&scratch, &mut resampled).is_ok() {
+                    for txt in eng.feed(&resampled) {
+                        let _ = app2.emit("transcript", TranscriptEvent { text: txt, interim: false });
+                    }
+                    if last_interim.elapsed() >= Duration::from_millis(250) {
+                        let it = eng.interim();
+                        if !it.is_empty() {
+                            let _ = app2.emit("transcript", TranscriptEvent { text: it, interim: true });
+                        }
+                        last_interim = Instant::now();
+                    }
                 }
-                last_interim = Instant::now();
             }
         }
 
-        resampled.clear();
-        let _ = resampler.flush(&mut resampled);
-        engine.feed(&resampled);
-        let final_text = engine.finish();
+        // Al soltar: finalizar STT (si hay motor) y limpiar el texto.
+        let raw = if let (Some(rs), Some(eng)) = (resampler.as_mut(), engine.as_mut()) {
+            resampled.clear();
+            let _ = rs.flush(&mut resampled);
+            eng.feed(&resampled);
+            eng.finish()
+        } else {
+            String::new()
+        };
+        let final_text = stt::clean_text(&raw);
+
+        hide_pill(&app2);
+
+        // Devolver el motor a la caché (sin recargar el modelo la próxima vez).
+        *state2.engine.lock() = engine;
 
         if !final_text.is_empty() {
-            let mode = *state_for_thread.inject_mode.lock();
+            let mode = *state2.inject_mode.lock();
             let result = match mode {
-                InjectMode::Paste => inject::insert_via_paste(&app_for_thread, &final_text),
+                InjectMode::Paste => inject::insert_via_paste(&app2, &final_text),
                 InjectMode::Type => inject::insert_via_typing(&final_text),
             };
             if let Err(e) = result {
-                eprintln!("inject error: {e}");
+                eprintln!("[inject] {e}");
             }
-            let _ = app_for_thread.emit("transcript", TranscriptEvent { text: final_text, interim: false });
+            let _ = app2.emit("transcript", TranscriptEvent { text: final_text, interim: false });
         }
-        let _ = app_for_thread.emit("state", "idle");
+        let _ = app2.emit("state", "idle");
     });
 
-    let _ = app.emit("state", "recording");
     Ok(())
 }
 
-fn stop_session(state: &Arc<AppState>) {
+fn stop_session(app: &AppHandle, state: &Arc<AppState>) {
     set_recording(&state.recording, false);
     *state.capture.lock() = None;
+    hide_pill(app);
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -224,7 +274,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             }
             "stop" => {
                 if let Some(state) = app.try_state::<Arc<AppState>>() {
-                    stop_session(&state);
+                    stop_session(app, &state);
                 }
             }
             "copy_last" => {
@@ -283,20 +333,72 @@ pub fn run() {
                 .ok();
             let catalog = Catalog::load(catalog_path.as_deref()).expect("load catalog");
 
+            // Log de la carpeta de modelos (para colocar los .onnx en la ruta correcta).
+            if let Ok(dir) = app.path().app_data_dir() {
+                eprintln!("[models] dir = {}", dir.join("models").display());
+            }
+
             let state = Arc::new(AppState {
                 catalog,
                 recording: flag(false),
                 capture: Mutex::new(None),
+                engine: Mutex::new(None),
                 primary_id: Mutex::new("parakeet-tdt-0.6b-v2-int8".into()),
-                fallback_id: Mutex::new(Some("whisper-base.en".into())),
+                fallback_id: Mutex::new(None),
                 vad_id: Mutex::new("silero-vad".into()),
                 provider: Mutex::new(provider_default()),
                 inject_mode: Mutex::new(InjectMode::Paste),
             });
             app.manage(state.clone());
 
+            // Pre-cargar el motor en segundo plano (si el modelo ya está descargado),
+            // para que la PRIMERA pulsación del atajo también sea instantánea.
+            {
+                let state_pw = state.clone();
+                let app_pw = app.handle().clone();
+                std::thread::spawn(move || {
+                    if let Ok(root) = app_pw.path().app_data_dir().map(|d| d.join("models")) {
+                        if state_pw.engine.lock().is_none() {
+                            if let Some(e) = build_engine(&state_pw, &root) {
+                                *state_pw.engine.lock() = Some(e);
+                                eprintln!("[stt] engine pre-warmed");
+                            }
+                        }
+                    }
+                });
+            }
+
             // Bandeja del sistema.
             build_tray(app.handle())?;
+
+            // Isla flotante de grabación: ventana transparente, always-on-top, sin marco,
+            // oculta hasta que se graba. Se posiciona arriba-centro de la pantalla.
+            if let Ok(pill) = tauri::WebviewWindowBuilder::new(
+                app,
+                "pill",
+                tauri::WebviewUrl::App("index.html#/pill".into()),
+            )
+            .title("")
+            .inner_size(300.0, 76.0)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .shadow(false)
+            .focused(false)
+            .visible(false)
+            .build()
+            {
+                if let Ok(Some(mon)) = pill.primary_monitor() {
+                    let sz = mon.size();
+                    let scale = mon.scale_factor();
+                    let win_w = 300.0 * scale;
+                    let x = ((sz.width as f64) - win_w) / 2.0;
+                    let y = 28.0 * scale;
+                    let _ = pill.set_position(tauri::PhysicalPosition::new(x, y));
+                }
+            }
 
             // Hotkey de bajo nivel (hold Ctrl+Shift) → evento "ptt".
             hotkey::spawn_ptt_listener(app.handle().clone());
@@ -315,7 +417,7 @@ pub fn run() {
                             eprintln!("start: {e}");
                         }
                     }
-                    "stop" => stop_session(&state_for_listener),
+                    "stop" => stop_session(&app_handle, &state_for_listener),
                     _ => {}
                 }
             });
