@@ -1,4 +1,5 @@
 name: release
+
 on:
   push:
     tags: ['v*']
@@ -8,57 +9,40 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Windows x64
-          - platform: windows-latest
-            args: ''
-            rust-targets: ''
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - uses: actions/checkout@v4
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-latest
 
-      - uses: actions/setup-node@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-targets }}
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - uses: swatinem/rust-cache@v2
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
 
-      # cmake lo necesita el build.rs de sherpa-onnx (las libs se auto-descargan).
-      - name: Install cmake (macOS)
-        if: matrix.platform == 'macos-14'
-        run: brew install cmake
-
-      - name: Install cmake (Windows)
-        if: matrix.platform == 'windows-latest'
+      - name: Install CMake
         run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
       - name: Install frontend deps
         run: npm ci
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: Build and upload Tauri release
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # --- Firma macOS (OMITIR para builds personales sin firmar) ---
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Yawning Face STT v__VERSION__'
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }}
