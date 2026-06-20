@@ -19,7 +19,7 @@ const siteUrl = "https://yawningface.app";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "Yawning Face STT — speak, and it's typed for you",
+  title: "Yawning Face STT: speak, and it's typed for you",
   description:
     "A voice-first, on-device dictation app for your desktop. Hold a hotkey, talk naturally, and your words land in whatever app you're using. Runs locally, private by design, multilingual. Windows and macOS.",
   keywords: [
@@ -40,9 +40,9 @@ export const metadata: Metadata = {
     apple: "/logo.png",
   },
   openGraph: {
-    title: "Yawning Face STT — speak, and it's typed for you",
+    title: "Yawning Face STT: speak, and it's typed for you",
     description:
-      "Voice-first dictation for your desktop. Hold a hotkey, talk, and your words appear in any app — on-device and private.",
+      "Voice-first dictation for your desktop. Hold a hotkey, talk, and your words appear in any app, on-device and private.",
     url: siteUrl,
     siteName: "Yawning Face STT",
     images: [{ url: "/logo.png", width: 400, height: 400, alt: "Yawning Face STT" }],
@@ -50,7 +50,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Yawning Face STT — speak, and it's typed for you",
+    title: "Yawning Face STT: speak, and it's typed for you",
     description:
       "Voice-first dictation for your desktop. On-device, private, multilingual.",
     images: ["/logo.png"],

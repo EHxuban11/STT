@@ -4,7 +4,7 @@ import GitHubStarPill from "@/components/GitHubStarPill";
 const links = [
   { href: "#features", label: "Features" },
   { href: "#how-it-works", label: "How it works" },
-  { href: "#download", label: "Download" },
+  { href: "#faq", label: "FAQ" },
 ];
 
 export default function Navbar() {
@@ -13,7 +13,7 @@ export default function Navbar() {
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <Logo />
 
-        <nav className="hidden items-center gap-6 md:flex">
+        <nav className="hidden items-center gap-7 md:flex">
           {links.map((link) => (
             <a
               key={link.href}
@@ -25,7 +25,15 @@ export default function Navbar() {
           ))}
         </nav>
 
-        <GitHubStarPill />
+        <div className="flex items-center gap-2.5">
+          <GitHubStarPill />
+          <a
+            href="#download"
+            className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-soft transition-all hover:-translate-y-0.5 hover:bg-primary/80 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/50"
+          >
+            Download
+          </a>
+        </div>
       </div>
     </header>
   );

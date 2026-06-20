@@ -87,8 +87,17 @@ pub fn clean_text(text: &str) -> String {
         .collect();
 
     let mut s = kept.join(" ");
-    for (a, b) in [(" ,", ","), (" .", "."), (" ?", "?"), (" !", "!"), ("  ", " ")] {
+
+    // Quitar em/en dashes y elipsis (preferencia del usuario: el dictado no los lleva).
+    s = s.replace('—', " ").replace('–', " ").replace("--", " ");
+    s = s.replace('…', "").replace("...", "");
+
+    // Normalizar puntuación y espacios.
+    for (a, b) in [(" ,", ","), (" .", "."), (" ?", "?"), (" !", "!")] {
         s = s.replace(a, b);
+    }
+    while s.contains("  ") {
+        s = s.replace("  ", " ");
     }
     let s = s.trim().to_string();
 

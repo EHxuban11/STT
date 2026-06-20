@@ -47,7 +47,6 @@ export default function Home() {
 
   useTopBar(
     <div className="flex w-full items-center">
-      <button className="no-drag pill border border-brand/40 text-brand">✦ Get Pro</button>
       <div className="flex flex-1 justify-center">
         <SegmentedTabs
           tabs={[
@@ -142,20 +141,7 @@ export default function Home() {
           </span>
         }
         right={<IconBadge icon={Mic} />}
-      >
-        <button className="btn-primary px-4 py-2 text-[13px]">
-          Enable AI Mode <Sparkles size={14} />
-        </button>
-      </HeroCard>
-
-      {/* Upsell modelo cloud */}
-      <HeroCard
-        title="Want faster transcription?"
-        body="Switch to a cloud-based model for lightning-fast transcription in Windows. We recommend Groq — it's free, easy to set up, and incredibly fast."
-        right={<IconBadge icon={Cloud} />}
-      >
-        <button className="btn-primary px-4 py-2 text-[13px]">Switch to Cloud Model</button>
-      </HeroCard>
+      />
     </div>
   );
 }

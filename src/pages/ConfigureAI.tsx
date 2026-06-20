@@ -36,7 +36,6 @@ export default function ConfigureAI() {
               <span className="flex items-center gap-2 text-sm font-semibold text-ink">
                 <Plus size={16} /> Add Custom API
               </span>
-              <ProPill label="Pro" />
             </button>
           </div>
 

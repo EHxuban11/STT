@@ -9,7 +9,7 @@ export default function Logo() {
       </span>
       <span className="text-lg font-semibold tracking-tight text-foreground">
         YawningFace
-        <span className="font-medium text-muted-foreground"> · STT</span>
+        <span className="font-medium text-muted-foreground"> STT</span>
       </span>
     </a>
   );

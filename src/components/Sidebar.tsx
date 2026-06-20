@@ -75,7 +75,6 @@ export function Sidebar() {
         <span className="text-[15px] font-bold leading-tight tracking-tight text-ink">
           Yawning Face
         </span>
-        <span className="pill border border-line text-muted">Free</span>
       </div>
 
       {/* Navegación principal */}

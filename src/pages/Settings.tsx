@@ -108,34 +108,6 @@ function AccountSection() {
         <button className="btn-primary mt-4 px-4 py-2 text-[13px]">Edit Information</button>
       </div>
 
-      <div className="flex items-center justify-between rounded-2xl border border-line p-5">
-        <div className="flex items-center gap-3">
-          <span className="font-semibold text-ink">Current Plan</span>
-          <span className="pill bg-card text-muted">FREE</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button className="btn-primary px-3.5 py-2 text-[13px]">
-            <KeyRound size={14} /> Activate License
-          </button>
-          <button className="btn-secondary px-3.5 py-2 text-[13px]">
-            <Gem size={14} /> Buy License
-          </button>
-          <button className="btn-secondary px-3.5 py-2 text-[13px]">
-            <ExternalLink size={14} /> Manage License
-          </button>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between rounded-2xl border border-line p-5">
-        <div>
-          <div className="font-semibold text-ink">Data</div>
-          <div className="text-sm text-muted">
-            Back up or restore your dictionary, threads, and workflows.
-          </div>
-        </div>
-        <ProPill />
-      </div>
-
       <div className="flex justify-end gap-4 text-xs text-muted">
         <a href="#" className="hover:underline">Privacy Policy</a>
         <a href="#" className="hover:underline">Terms of Service</a>
@@ -214,6 +186,8 @@ function RecordingSection() {
   const pos = useStore((s) => s.recordingPos);
   const [idle, setIdle] = useState(false);
   const [saveAudio, setSaveAudio] = useState(false);
+  const [muteSys, setMuteSys] = useState(false);
+  const [preview, setPreview] = useState(false);
   return (
     <Card>
       <SettingRow
@@ -233,8 +207,8 @@ function RecordingSection() {
       />
       <SettingRow label="Show idle pill" help="Display a minimized bar at the screen edge when idle. Hover to expand and start a recording." control={<Toggle checked={idle} onChange={setIdle} />} />
       <SettingRow label="Save audio recordings" help="Keep .wav audio files in ~/Documents/Yawning Face Recordings" control={<Toggle checked={saveAudio} onChange={setSaveAudio} />} />
-      <SettingRow label="Mute system audio during recording" help="Automatically mute system audio when recording starts and unmute after transcription is pasted" control={<ProPill />} />
-      <SettingRow label="Real-time transcription preview" help="Show a live preview of your transcription below the recording indicator while speaking." control={<ProPill />} />
+      <SettingRow label="Mute system audio during recording" help="Automatically mute system audio when recording starts and unmute after transcription is pasted" control={<Toggle checked={muteSys} onChange={setMuteSys} />} />
+      <SettingRow label="Real-time transcription preview" help="Show a live preview of your transcription below the recording indicator while speaking." control={<Toggle checked={preview} onChange={setPreview} />} />
     </Card>
   );
 }
@@ -258,11 +232,6 @@ function ShortcutsSection() {
               />
             </div>
           </div>
-          {r.pro && (
-            <button className="mt-1.5 flex items-center gap-1 text-xs font-medium text-brand">
-              <Gem size={11} /> Multiple shortcuts — Upgrade to Pro
-            </button>
-          )}
         </div>
       ))}
     </Card>
@@ -292,30 +261,22 @@ function SyncSection() {
     { name: "OneDrive", help: "Sign in to OneDrive.", status: "Connect" },
   ];
   return (
-    <div className="relative">
-      <div className="pointer-events-none select-none opacity-40">
-        <p className="mb-4 text-sm text-muted">
-          Sync your dictionary, threads, expansions, workflows, tones, preferences, hotkeys, and
-          transcription data across devices. Your data is stored in your own cloud storage folder —
-          Yawning Face never sees it.
-        </p>
-        <Card>
-          {providers.map((p) => (
-            <SettingRow
-              key={p.name}
-              label={p.name}
-              help={p.help}
-              control={<span className="text-sm text-muted">{p.status}</span>}
-            />
-          ))}
-        </Card>
-      </div>
-      <div className="absolute inset-0 grid place-items-center">
-        <div className="flex flex-col items-center gap-2 rounded-xl bg-app/80 px-6 py-4 text-center backdrop-blur">
-          <Lock size={20} className="text-brand" />
-          <button className="text-sm font-semibold text-brand">Cloud Sync — Upgrade to Pro</button>
-        </div>
-      </div>
+    <div>
+      <p className="mb-4 text-sm text-muted">
+        Sync your dictionary, threads, expansions, workflows, tones, preferences, hotkeys, and
+        transcription data across devices. Your data is stored in your own cloud storage folder, so
+        it never leaves your control.
+      </p>
+      <Card>
+        {providers.map((p) => (
+          <SettingRow
+            key={p.name}
+            label={p.name}
+            help={p.help}
+            control={<span className="text-sm text-muted">{p.status}</span>}
+          />
+        ))}
+      </Card>
     </div>
   );
 }
@@ -323,6 +284,7 @@ function SyncSection() {
 function ExperimentalSection() {
   const [conn, setConn] = useState(false);
   const [silence, setSilence] = useState(false);
+  const [tagging, setTagging] = useState(false);
   const Tag = () => (
     <span className="pill bg-amber-500/15 text-[10px] font-bold uppercase text-amber-600">
       Experimental
@@ -335,8 +297,8 @@ function ExperimentalSection() {
         experiencing a specific issue.
       </p>
       <Card>
-        <SettingRow label="Enable Connectors" badge={<Tag />} help="Connect external apps (Linear, Notion, Vercel, …) so Live Ask, Chat with Notes, and Command Mode can read from and act on them. Requires a Pro plan." control={<Toggle checked={conn} onChange={setConn} />} />
-        <SettingRow label="Enable Cursor/Windsurf file tagging" badge={<Tag />} help="When dictating in Cursor or Windsurf, automatically detect file references and insert them as @ mentions using the IDE's file picker" control={<ProPill />} />
+        <SettingRow label="Enable Connectors" badge={<Tag />} help="Connect external apps (Linear, Notion, Vercel, …) so Live Ask, Chat with Notes, and Command Mode can read from and act on them." control={<Toggle checked={conn} onChange={setConn} />} />
+        <SettingRow label="Enable Cursor/Windsurf file tagging" badge={<Tag />} help="When dictating in Cursor or Windsurf, automatically detect file references and insert them as @ mentions using the IDE's file picker" control={<Toggle checked={tagging} onChange={setTagging} />} />
         <SettingRow label="Enhanced silence detection" badge={<Tag />} help="Increases the silence threshold for cloud models (Groq, etc.) to prevent phantom transcriptions in moderately noisy environments. Enable this if you get empty or hallucinated transcriptions while not speaking." control={<Toggle checked={silence} onChange={setSilence} />} />
       </Card>
     </>
