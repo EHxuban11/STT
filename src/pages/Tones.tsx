@@ -28,7 +28,7 @@ export default function Tones() {
         <CounterPill text="0/1 tones" />
       </div>
       <div className="pt-10 text-center text-sm text-muted">
-        No tones yet — create one to override settings for specific apps.
+        No tones yet, create one to override settings for specific apps.
       </div>
 
       {showDialog && <NewToneDialog onClose={() => setShowDialog(false)} />}

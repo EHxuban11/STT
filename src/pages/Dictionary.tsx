@@ -30,7 +30,7 @@ export default function Dictionary() {
         <>
           <HeroCard
             title="Words that belong to you."
-            body="Model size matters. Add words you say often — they guide transcription on Small models and above."
+            body="Model size matters. Add words you say often, they guide transcription on Small models and above."
           />
           <div className="border-t border-line pt-8 text-center text-sm text-muted">
             No vocabulary words yet

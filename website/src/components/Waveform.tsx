@@ -1,5 +1,5 @@
 /**
- * Animated amber audio waveform — pure CSS (each bar uses the `wave` keyframe
+ * Animated amber audio waveform, pure CSS (each bar uses the `wave` keyframe
  * with a staggered delay). Server component; no JS needed.
  */
 export default function Waveform({
@@ -12,7 +12,7 @@ export default function Waveform({
   barClassName?: string;
 }) {
   // A fixed, organic-looking set of per-bar durations/delays (deterministic so
-  // SSR and client markup match — no Math.random).
+  // SSR and client markup match, no Math.random).
   return (
     <div
       className={`flex items-center gap-[3px] ${className}`}

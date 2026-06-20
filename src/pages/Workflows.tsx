@@ -24,7 +24,7 @@ export default function Workflows() {
             Hold <Kbd>Ctrl</Kbd> + <Kbd>⇧</Kbd> and say the word.
           </span>
         }
-        body="Speak a trigger phrase to open apps, search the web, or talk to AI — hands-free."
+        body="Speak a trigger phrase to open apps, search the web, or talk to AI, hands-free."
       />
 
       <div className="flex justify-end">

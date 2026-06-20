@@ -12,7 +12,7 @@ type RevealProps = {
 
 /**
  * Lightweight scroll-reveal. Adds `.is-visible` when the element scrolls into
- * view (once). No animation library — just IntersectionObserver + the CSS in
+ * view (once). No animation library, just IntersectionObserver + the CSS in
  * globals.css, and it respects prefers-reduced-motion.
  */
 export default function Reveal({

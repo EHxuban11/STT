@@ -142,7 +142,7 @@ function GeneralSection() {
       <SettingRow label="Open at Login" help="Automatically launch Yawning Face when you log into your computer" control={<Toggle checked={g.openAtLogin} onChange={set("openAtLogin")} />} />
       <SettingRow label="Start Minimized to Tray" help="Start the app minimized to the system tray (access via tray icon only)" control={<Toggle checked={g.startMinimized} onChange={set("startMinimized")} />} />
       <SettingRow label="Auto-paste transcription" help="Automatically paste transcribed text into focused field" control={<Toggle checked={g.autopaste} onChange={set("autopaste")} />} />
-      <SettingRow label="Text Insertion Method" help={'How transcribed text is inserted. "Paste method" uses the clipboard; "Direct insertion" types characters directly — the clipboard is never read, written, or modified in any way.'} control={<InsertMethodSelect />} />
+      <SettingRow label="Text Insertion Method" help={'How transcribed text is inserted. "Paste method" uses the clipboard; "Direct insertion" types characters directly, the clipboard is never read, written, or modified in any way.'} control={<InsertMethodSelect />} />
       <SettingRow label="Auto Enter" help="Automatically press Enter after pasting transcription" control={<Toggle checked={g.autoEnter} onChange={set("autoEnter")} />} />
       <SettingRow label="Restore clipboard after paste" help="Restore your original clipboard content after transcription is pasted" control={<Toggle checked={g.restoreClipboard} onChange={set("restoreClipboard")} />} />
       <SettingRow label="Sound Effects" help="Play audio feedback when recording starts and stops" control={<Toggle checked={g.soundEffects} onChange={set("soundEffects")} />} />

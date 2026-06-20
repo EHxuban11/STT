@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    /* Tema claro — identidad de marca Yawning Face (light-first, ámbar) */
+    /* Tema claro, identidad de marca Yawning Face (light-first, ámbar) */
     --app-bg: 254 253 251;        /* #fefdfb lienzo cálido */
     --sidebar-bg: 248 246 241;    /* #f8f6f1 */
     --card-bg: 245 242 234;       /* #f5f2ea tarjetas suaves */

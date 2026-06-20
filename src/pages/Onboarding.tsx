@@ -5,7 +5,7 @@ import { useStore, setState } from "@/lib/store";
 import { downloadModel } from "@/lib/models";
 import { invoke } from "@/lib/tauri";
 
-// Onboarding de primer arranque — original, inspirado en el flujo típico de apps de dictado
+// Onboarding de primer arranque, original, inspirado en el flujo típico de apps de dictado
 // (bienvenida → micrófono → descargar modelo → probar). No pide correo ni datos personales.
 const STEPS = 4;
 
@@ -22,7 +22,7 @@ const MODELS = [
     id: "parakeet-tdt-0.6b-v3-int8",
     uiId: "ml:Parakeet V3",
     name: "Parakeet V3",
-    sub: "Multilingual — includes Spanish",
+    sub: "Multilingual, includes Spanish",
     bytes: 700_000_000,
     icon: Globe,
   },

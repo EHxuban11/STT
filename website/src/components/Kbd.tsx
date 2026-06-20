@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-/** A small keycap. Warm, slightly raised — matches the rounded brand. */
+/** A small keycap. Warm, slightly raised, matches the rounded brand. */
 export default function Kbd({
   children,
   className = "",

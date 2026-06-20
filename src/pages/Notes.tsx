@@ -24,7 +24,7 @@ export default function Notes() {
       </div>
       <HeroCard
         title="Capture every meeting, effortlessly."
-        body="AI-powered summaries, action items, and key decisions — all from your voice."
+        body="AI-powered summaries, action items, and key decisions, all from your voice."
         right={
           <button className="btn-ghost">
             <RefreshCw size={16} />

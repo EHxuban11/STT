@@ -56,14 +56,14 @@ export default function ConfigureAI() {
       {tab === "command" && (
         <HeroCard
           title="Command Mode."
-          body="Hold the Command Mode shortcut and tell Yawning Face what to do with your selection — polish text, translate, convert files and more. Requires an AI provider."
+          body="Hold the Command Mode shortcut and tell Yawning Face what to do with your selection, polish text, translate, convert files and more. Requires an AI provider."
         />
       )}
 
       {tab === "memory" && (
         <HeroCard
           title="Memory."
-          body="Give Yawning Face context about you — files and notes it can reference to personalise transcriptions and answers."
+          body="Give Yawning Face context about you, files and notes it can reference to personalise transcriptions and answers."
         />
       )}
     </div>
