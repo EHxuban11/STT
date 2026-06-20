@@ -109,6 +109,51 @@ pub fn clean_text(text: &str) -> String {
     }
 }
 
+/// Aplica el diccionario del usuario: reemplazos "cuando oigas X → escribe Y".
+/// Coincidencia por palabra completa, sin distinguir mayúsculas/minúsculas.
+pub fn apply_dictionary(text: &str, dict: &[(String, String)]) -> String {
+    let mut s = text.to_string();
+    for (from, to) in dict {
+        if from.trim().is_empty() {
+            continue;
+        }
+        s = replace_word_ci(&s, from, to);
+    }
+    s
+}
+
+fn replace_word_ci(haystack: &str, from: &str, to: &str) -> String {
+    // Trabajamos por caracteres (1:1 con su minúscula) para no romper UTF-8.
+    let hs: Vec<char> = haystack.chars().collect();
+    let hl: Vec<char> = hs.iter().map(|c| c.to_lowercase().next().unwrap_or(*c)).collect();
+    let from_l: Vec<char> = from
+        .trim()
+        .chars()
+        .map(|c| c.to_lowercase().next().unwrap_or(c))
+        .collect();
+    let (n, m) = (hs.len(), from_l.len());
+    if m == 0 {
+        return haystack.to_string();
+    }
+    let is_word = |c: char| c.is_alphanumeric();
+    let mut out = String::with_capacity(haystack.len());
+    let mut i = 0;
+    while i < n {
+        if i + m <= n && hl[i..i + m] == from_l[..] {
+            let before_ok = i == 0 || !is_word(hs[i - 1]);
+            let after_ok = i + m == n || !is_word(hs[i + m]);
+            if before_ok && after_ok {
+                out.push_str(to);
+                i += m;
+                continue;
+            }
+        }
+        out.push(hs[i]);
+        i += 1;
+    }
+    out
+}
+
 /// Motor de dictado en streaming: alimenta muestras 16k mono → texto interim + final.
 pub struct Engine {
     pub recognizer: OfflineRecognizer,

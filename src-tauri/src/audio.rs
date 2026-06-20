@@ -132,7 +132,7 @@ pub fn set_recording(f: &RecordingFlag, v: bool) {
     f.store(v, Ordering::Relaxed)
 }
 /// Reclama la grabación de forma ATÓMICA: devuelve true solo si estaba libre (false→true).
-/// Evita que dos eventos "ptt start" simultáneos (rdevin + atajo global) abran dos sesiones.
+/// Evita que eventos "ptt start" repetidos abran dos sesiones simultáneas.
 pub fn try_claim(f: &RecordingFlag) -> bool {
     f.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()

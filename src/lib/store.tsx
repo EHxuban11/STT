@@ -1,7 +1,14 @@
 import { useSyncExternalStore } from "react";
+import { invoke } from "./tauri";
 
 // Store global mínimo, persistido en localStorage (se migrará a Tauri Store en escritorio).
 export type RecordingPos = "top" | "bottom" | "off";
+
+// Entrada de diccionario: "cuando oigas {from}, escribe {to}".
+export interface DictEntry {
+  from: string;
+  to: string;
+}
 
 export interface AppState {
   selectedModelId: string; // p.ej. "en:Parakeet V2"
@@ -18,6 +25,7 @@ export interface AppState {
     removeFillers: boolean;
   };
   workflowsEnabled: Record<string, boolean>;
+  dictionary: DictEntry[];
   transcriptions: Transcription[];
   installed: string[]; // ids de BACKEND de modelos descargados (p.ej. "parakeet-tdt-0.6b-v2-int8")
   activeModelId: string; // id de BACKEND del modelo activo (el que usa el dictado)
@@ -38,8 +46,8 @@ export interface Transcription {
 }
 
 const DEFAULT: AppState = {
-  selectedModelId: "en:Parakeet V2",
-  selectedModelName: "Parakeet V2",
+  selectedModelId: "ml:Parakeet V3",
+  selectedModelName: "Parakeet V3",
   recordingPos: "top",
   general: {
     openAtLogin: false,
@@ -52,9 +60,10 @@ const DEFAULT: AppState = {
     removeFillers: true,
   },
   workflowsEnabled: {},
+  dictionary: [],
   transcriptions: [],
   installed: [], // se rellena desde el backend (list_installed_models); en navegador, por descargas simuladas
-  activeModelId: "parakeet-tdt-0.6b-v2-int8",
+  activeModelId: "parakeet-tdt-0.6b-v3-int8",
   insertMethod: "paste",
   onboarded: false,
   downloads: {},
@@ -70,7 +79,22 @@ const EPHEMERAL: (keyof AppState)[] = ["recording", "liveText", "downloads", "to
 function load(): AppState {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULT, ...JSON.parse(raw) };
+    if (raw) {
+      const loaded = { ...DEFAULT, ...JSON.parse(raw) };
+      const oldDefaultModel =
+        loaded.selectedModelId === "en:Parakeet V2" &&
+        loaded.selectedModelName === "Parakeet V2" &&
+        loaded.activeModelId === "parakeet-tdt-0.6b-v2-int8";
+      if (oldDefaultModel) {
+        return {
+          ...loaded,
+          selectedModelId: DEFAULT.selectedModelId,
+          selectedModelName: DEFAULT.selectedModelName,
+          activeModelId: DEFAULT.activeModelId,
+        };
+      }
+      return loaded;
+    }
   } catch {
     /* ignore */
   }
@@ -116,6 +140,12 @@ export function clearDownload(id: string) {
 /** Reemplaza la lista de modelos instalados (la que reporta el backend). */
 export function setInstalled(ids: string[]) {
   setState({ installed: ids });
+}
+
+/** Guarda el diccionario y lo empuja al backend (que lo aplica a cada dictado). */
+export function saveDictionary(entries: DictEntry[]) {
+  setState({ dictionary: entries });
+  invoke("set_dictionary", { entries });
 }
 
 let toastTimer = 0;

@@ -1,19 +1,21 @@
-import { useState } from "react";
-import { Type, Flame, Clock, Mic, Zap, Cloud, Sparkles, Headphones, Copy } from "lucide-react";
-import { useTopBar } from "@/components/AppLayout";
-import { SegmentedTabs, HeroCard, IconBadge, StatCard, Kbd, EmptyState } from "@/components/ui";
+import { Link } from "react-router-dom";
+import { BarChart3, Clock, Copy, Mic } from "lucide-react";
+import { EmptyState, HeroCard, IconBadge, Kbd } from "@/components/ui";
 import { useStore, type Transcription } from "@/lib/store";
 
 function dateGroupLabel(ts: number) {
   const d = new Date(ts);
   const day = new Date(d);
   day.setHours(0, 0, 0, 0);
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const yest = new Date(today);
-  yest.setDate(yest.getDate() - 1);
+
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
   if (day.getTime() === today.getTime()) return "Today";
-  if (day.getTime() === yest.getTime()) return "Yesterday";
+  if (day.getTime() === yesterday.getTime()) return "Yesterday";
   return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 }
 
@@ -21,7 +23,6 @@ function timeLabel(ts: number) {
   return new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-// Agrupa las transcripciones (ya ordenadas, más recientes primero) por fecha.
 function groupByDate(txs: Transcription[]) {
   const groups: { label: string; items: Transcription[] }[] = [];
   for (const t of txs) {
@@ -34,39 +35,40 @@ function groupByDate(txs: Transcription[]) {
 }
 
 export default function Home() {
-  const [tab, setTab] = useState<"overview" | "history">("overview");
-  const modelName = useStore((s) => s.selectedModelName);
   const txs = useStore((s) => s.transcriptions);
 
-  const totalWords = txs.reduce((a, t) => a + t.words, 0);
-  const minutesSaved = Math.round((totalWords / 130) * 10) / 10; // ~130 wpm tecleando
-  const today = new Date().toDateString();
-  const spokenToday = txs
-    .filter((t) => new Date(t.at).toDateString() === today)
-    .reduce((a, t) => a + t.words, 0);
+  return (
+    <div className="mx-auto max-w-4xl space-y-5 pt-2">
+      <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-ink">Hi there, XC</h1>
+          <p className="mt-1 text-muted">Dictate anywhere and keep a clean local history here.</p>
+        </div>
+        <Link
+          to="/insights"
+          className="inline-flex items-center gap-2 rounded-xl border border-line bg-app px-3.5 py-2 text-[13px] font-semibold text-ink transition-colors hover:bg-card"
+        >
+          <BarChart3 size={15} className="text-brand" />
+          View insights
+        </Link>
+      </div>
 
-  useTopBar(
-    <div className="flex w-full items-center">
-      <div className="flex flex-1 justify-center">
-        <SegmentedTabs
-          tabs={[
-            { id: "overview", label: "Overview" },
-            { id: "history", label: "History" },
-          ]}
-          value={tab}
-          onChange={setTab}
+      {txs.length === 0 && (
+        <HeroCard
+          title={
+            <span className="flex flex-wrap items-center gap-2">
+              Hold <Kbd>Ctrl</Kbd> + <Kbd>Shift</Kbd> to dictate anywhere.
+            </span>
+          }
+          body="Your words get pasted into whatever app you're in, transcribed on-device."
+          right={<IconBadge icon={Mic} />}
         />
-      </div>
-      <div className="no-drag mr-1 flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-muted">
-        <Headphones size={14} className="text-brand" /> {modelName}
-      </div>
-    </div>,
-    [tab, modelName]
-  );
+      )}
 
-  if (tab === "history")
-    return (
-      <div className="mx-auto max-w-4xl pt-2">
+      <div>
+        <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-faint">
+          History
+        </div>
         {txs.length === 0 ? (
           <EmptyState
             icon={<Clock size={40} strokeWidth={1.5} />}
@@ -103,45 +105,6 @@ export default function Home() {
           </div>
         )}
       </div>
-    );
-
-  return (
-    <div className="mx-auto max-w-4xl space-y-5 pt-2">
-      {/* Banner de novedad */}
-      <HeroCard
-        title="Try out the new Expansions feature"
-        body="Type a shortcut anywhere and it expands instantly."
-        right={<IconBadge icon={Zap} />}
-      >
-        <button className="btn-primary px-4 py-2 text-[13px]">Try it out</button>
-        <button className="btn-secondary px-4 py-2 text-[13px]">Dismiss</button>
-      </HeroCard>
-
-      {/* Saludo */}
-      <div className="pt-2">
-        <h1 className="text-3xl font-bold tracking-tight text-ink">
-          Hi there, XC <span className="align-middle">👋</span>
-        </h1>
-        <p className="mt-1 text-muted">You've spoken {spokenToday} words today</p>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatCard icon={<Type size={18} />} value={`${totalWords}`} label="Total Words" delta={`+${spokenToday} this week`} />
-        <StatCard icon={<Flame size={18} />} value={spokenToday > 0 ? "1 day" : "0 days"} label="Longest Streak" delta={`${spokenToday > 0 ? 1 : 0}-day active streak`} />
-        <StatCard icon={<Clock size={18} />} value={minutesSaved >= 60 ? `${(minutesSaved / 60).toFixed(1)} hour` : `${minutesSaved} min`} label="Total Time Saved" delta={`+${minutesSaved}m this week`} />
-        <StatCard icon={<Mic size={18} />} value={`${txs.length}`} label="Transcriptions" delta={`+${txs.length} this week`} />
-      </div>
-
-      {/* Hint de dictado */}
-      <HeroCard
-        title={
-          <span className="flex flex-wrap items-center gap-2">
-            Hold <Kbd>Ctrl</Kbd> + <Kbd>⇧</Kbd> + <Kbd>Space</Kbd> to dictate anywhere.
-          </span>
-        }
-        right={<IconBadge icon={Mic} />}
-      />
     </div>
   );
 }

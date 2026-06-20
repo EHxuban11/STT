@@ -1,15 +1,13 @@
-import { Routes, Route, useLocation } from "react-router-dom";
+import { Navigate, Routes, Route, useLocation } from "react-router-dom";
 import { ThemeProvider } from "./lib/theme";
 import { useStore } from "./lib/store";
 import { AppLayout } from "./components/AppLayout";
 import Home from "./pages/Home";
+import Insights from "./pages/Insights";
 import Transcribe from "./pages/Transcribe";
 import SpeechModels from "./pages/SpeechModels";
 import Dictionary from "./pages/Dictionary";
 import Workflows from "./pages/Workflows";
-import ConfigureAI from "./pages/ConfigureAI";
-import Notes from "./pages/Notes";
-import Tones from "./pages/Tones";
 import Settings from "./pages/Settings";
 import Help from "./pages/Help";
 import Pill from "./pages/Pill";
@@ -25,15 +23,14 @@ function Gate() {
         <Route path="pill" element={<Pill />} />
         <Route element={<AppLayout />}>
           <Route index element={<Home />} />
+          <Route path="insights" element={<Insights />} />
           <Route path="transcribe" element={<Transcribe />} />
           <Route path="speech-models" element={<SpeechModels />} />
           <Route path="dictionary" element={<Dictionary />} />
           <Route path="workflows" element={<Workflows />} />
-          <Route path="configure-ai" element={<ConfigureAI />} />
-          <Route path="notes" element={<Notes />} />
-          <Route path="tones" element={<Tones />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
       {/* Onboarding de primer arranque (no en la ventana flotante) */}

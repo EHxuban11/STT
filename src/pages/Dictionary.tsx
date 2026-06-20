@@ -1,66 +1,27 @@
-import { useState } from "react";
 import { Plus } from "lucide-react";
-import { useTopBar } from "@/components/AppLayout";
-import { SegmentedTabs, HeroCard } from "@/components/ui";
+import { HeroCard } from "@/components/ui";
 
 export default function Dictionary() {
-  const [tab, setTab] = useState<"dictionary" | "threads" | "expansions">("dictionary");
-
-  useTopBar(
-    <div className="flex w-full justify-end">
-      <button className="no-drag btn-primary px-3.5 py-2 text-[13px]">
-        <Plus size={15} /> Add Word
-      </button>
-    </div>
-  );
-
   return (
     <div className="mx-auto max-w-4xl space-y-4 pt-2">
-      <SegmentedTabs
-        tabs={[
-          { id: "dictionary", label: "Dictionary" },
-          { id: "threads", label: "Threads" },
-          { id: "expansions", label: "Expansions" },
-        ]}
-        value={tab}
-        onChange={setTab}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-ink">Dictionary</h1>
+          <p className="text-sm text-muted">Teach the app names, products, and phrases you use often.</p>
+        </div>
+        <button className="btn-primary px-3.5 py-2 text-[13px]">
+          <Plus size={15} /> Add Word
+        </button>
+      </div>
+
+      <HeroCard
+        title="Words that belong to you."
+        body="Add words you say often so transcription can preserve the names, terms, and casing you care about."
       />
 
-      {tab === "dictionary" && (
-        <>
-          <HeroCard
-            title="Words that belong to you."
-            body="Model size matters. Add words you say often, they guide transcription on Small models and above."
-          />
-          <div className="border-t border-line pt-8 text-center text-sm text-muted">
-            No vocabulary words yet
-          </div>
-        </>
-      )}
-
-      {tab === "threads" && (
-        <>
-          <HeroCard
-            title="Threads."
-            body="Group related phrases so Yawning Face recognises them as a single unit."
-          />
-          <div className="border-t border-line pt-8 text-center text-sm text-muted">
-            No threads yet
-          </div>
-        </>
-      )}
-
-      {tab === "expansions" && (
-        <>
-          <HeroCard
-            title="Expansions."
-            body="Type a short trigger anywhere and it expands instantly into longer text."
-          />
-          <div className="border-t border-line pt-8 text-center text-sm text-muted">
-            No expansions yet
-          </div>
-        </>
-      )}
+      <div className="border-t border-line pt-8 text-center text-sm text-muted">
+        No vocabulary words yet
+      </div>
     </div>
   );
 }

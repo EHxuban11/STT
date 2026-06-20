@@ -1,12 +1,11 @@
 import { useState } from "react";
-import { Search, KeyRound, Gem, ExternalLink, CheckCircle2, Lock } from "lucide-react";
+import { Search, CheckCircle2 } from "lucide-react";
 import clsx from "clsx";
 import {
   SettingRow,
   Toggle,
   Dropdown,
   KeycapCombo,
-  ProPill,
   SegmentedTabs,
 } from "@/components/ui";
 import { SETTINGS_SECTIONS, SettingsSection, SHORTCUTS } from "@/lib/data";
@@ -173,7 +172,7 @@ function LanguageSection() {
         <div className="text-[15px] font-semibold text-ink">Transcription Language</div>
         <p className="mt-0.5 text-[13px] text-muted">Select transcription language (auto-detect recommended)</p>
         <div className="mt-2 rounded-lg bg-card px-3 py-2 text-[13px] text-muted">
-          <b className="text-ink">Parakeet V2 (English):</b> This model only transcribes English speech.
+          <b className="text-ink">Parakeet V3:</b> Auto-detects supported speech for the active local model.
         </div>
         <div className="mt-2"><Dropdown value="English" /></div>
       </div>
@@ -263,9 +262,8 @@ function SyncSection() {
   return (
     <div>
       <p className="mb-4 text-sm text-muted">
-        Sync your dictionary, threads, expansions, workflows, tones, preferences, hotkeys, and
-        transcription data across devices. Your data is stored in your own cloud storage folder, so
-        it never leaves your control.
+        Sync your dictionary, workflows, preferences, hotkeys, and transcription data across devices.
+        Your data is stored in your own cloud storage folder, so it never leaves your control.
       </p>
       <Card>
         {providers.map((p) => (
@@ -297,7 +295,7 @@ function ExperimentalSection() {
         experiencing a specific issue.
       </p>
       <Card>
-        <SettingRow label="Enable Connectors" badge={<Tag />} help="Connect external apps (Linear, Notion, Vercel, …) so Live Ask, Chat with Notes, and Command Mode can read from and act on them." control={<Toggle checked={conn} onChange={setConn} />} />
+        <SettingRow label="Enable Connectors" badge={<Tag />} help="Connect external apps (Linear, Notion, Vercel, etc.) so AI actions can read from and act on them." control={<Toggle checked={conn} onChange={setConn} />} />
         <SettingRow label="Enable Cursor/Windsurf file tagging" badge={<Tag />} help="When dictating in Cursor or Windsurf, automatically detect file references and insert them as @ mentions using the IDE's file picker" control={<Toggle checked={tagging} onChange={setTagging} />} />
         <SettingRow label="Enhanced silence detection" badge={<Tag />} help="Increases the silence threshold for cloud models (Groq, etc.) to prevent phantom transcriptions in moderately noisy environments. Enable this if you get empty or hallucinated transcriptions while not speaking." control={<Toggle checked={silence} onChange={setSilence} />} />
       </Card>

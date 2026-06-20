@@ -106,12 +106,6 @@ export const SHORTCUTS = [
     pro: true,
   },
   {
-    label: "Start New Note",
-    help: "Open the Start Taking Notes modal",
-    keys: ["Alt", "N"],
-    on: false,
-  },
-  {
     label: "Paste Last Transcription",
     help: "Paste your most recent transcription into the focused app",
     keys: ["Ctrl", "⇧ Shift", "L"],

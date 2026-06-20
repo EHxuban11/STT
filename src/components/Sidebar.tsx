@@ -1,33 +1,25 @@
 import { NavLink } from "react-router-dom";
 import {
   Home,
+  BarChart3,
   Mic,
   Boxes,
   BookOpen,
   Workflow,
-  Sparkles,
-  FileText,
-  SlidersHorizontal,
   Settings,
   HelpCircle,
   PanelLeft,
-  Pencil,
 } from "lucide-react";
 import clsx from "clsx";
 import { Logo } from "./Logo";
 
 const mainNav = [
   { to: "/", label: "Home", icon: Home, end: true },
+  { to: "/insights", label: "Insights", icon: BarChart3 },
   { to: "/transcribe", label: "Transcribe", icon: Mic },
   { to: "/speech-models", label: "Speech models", icon: Boxes },
   { to: "/dictionary", label: "Dictionary", icon: BookOpen },
   { to: "/workflows", label: "Workflows", icon: Workflow },
-];
-
-const aiNav = [
-  { to: "/configure-ai", label: "Configure your AI", icon: Sparkles },
-  { to: "/notes", label: "Notes", icon: FileText },
-  { to: "/tones", label: "Tones", icon: SlidersHorizontal },
 ];
 
 function Item({
@@ -80,14 +72,6 @@ export function Sidebar() {
       {/* Navegación principal */}
       <nav className="flex flex-1 flex-col gap-1 px-3">
         {mainNav.map((n) => (
-          <Item key={n.to} {...n} />
-        ))}
-
-        <div className="mb-1 mt-5 flex items-center gap-1.5 px-3 text-xs font-semibold uppercase tracking-wide text-brand">
-          Yawning Face AI
-          <Pencil size={11} />
-        </div>
-        {aiNav.map((n) => (
           <Item key={n.to} {...n} />
         ))}
       </nav>

@@ -1,4 +1,4 @@
-import { Moon, Sun, Minus, Square, X, UserCircle2 } from "lucide-react";
+import { Moon, Sun, Minus, Square, X } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -12,7 +12,7 @@ async function win(action: "minimize" | "maximize" | "close") {
   if (action === "close") await w.close();
 }
 
-// Controles superiores de la ventana (tema, cuenta, min/max/close).
+// Controles superiores de la ventana (tema, min/max/close).
 // En el navegador no manipulan la ventana; en la app Tauri usan la API nativa.
 export function WindowControls() {
   const { theme, toggle } = useTheme();
@@ -21,9 +21,6 @@ export function WindowControls() {
     <div className="no-drag flex items-center gap-1">
       <button onClick={toggle} className="btn-ghost" title="Toggle theme">
         {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
-      </button>
-      <button className="btn-ghost" title="Account">
-        <UserCircle2 size={18} />
       </button>
       <div className="ml-1 flex items-center">
         <button onClick={() => win("minimize")} className="btn-ghost px-2" title="Minimize">

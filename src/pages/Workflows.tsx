@@ -1,5 +1,4 @@
 import { Plus } from "lucide-react";
-import { useTopBar } from "@/components/AppLayout";
 import { HeroCard, Kbd, CounterPill, Toggle } from "@/components/ui";
 import { DEFAULT_WORKFLOWS } from "@/lib/data";
 import { useStore, setState } from "@/lib/store";
@@ -8,16 +7,18 @@ export default function Workflows() {
   const enabled = useStore((s) => s.workflowsEnabled);
   const isOn = (t: string) => enabled[t] ?? true;
 
-  useTopBar(
-    <div className="flex w-full justify-end">
-      <button className="no-drag btn-primary px-3.5 py-2 text-[13px]">
-        <Plus size={15} /> Create Workflow
-      </button>
-    </div>
-  );
-
   return (
     <div className="mx-auto max-w-4xl space-y-3 pt-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-ink">Workflows</h1>
+          <p className="text-sm text-muted">Trigger useful actions with short spoken phrases.</p>
+        </div>
+        <button className="btn-primary px-3.5 py-2 text-[13px]">
+          <Plus size={15} /> Create Workflow
+        </button>
+      </div>
+
       <HeroCard
         title={
           <span className="flex items-center gap-2">

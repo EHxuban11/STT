@@ -1,11 +1,10 @@
-import { Cloud, Languages, Globe, MonitorCog, AudioLines, Bird, Cpu, Loader2, Download } from "lucide-react";
-import { HeroCard, ProviderRow, SetupBadge, SectionLabel } from "@/components/ui";
+import { Cloud, Cpu, Download, Globe, Languages, Loader2, MonitorCog } from "lucide-react";
+import { ProviderRow, SectionLabel, SetupBadge } from "@/components/ui";
 import { CLOUD_STT, LOCAL_ENGLISH, LOCAL_MULTI, LocalModel } from "@/lib/data";
-import { useStore, setState } from "@/lib/store";
 import { downloadModel } from "@/lib/models";
+import { setState, useStore } from "@/lib/store";
 import { invoke } from "@/lib/tauri";
 
-// "451 MB" / "1.4 GB" -> bytes aproximados
 function parseSize(s: string): number {
   const m = s.match(/([\d.]+)\s*(MB|GB)/i);
   if (!m) return 100_000_000;
@@ -13,16 +12,52 @@ function parseSize(s: string): number {
   return Math.round(n * (m[2].toUpperCase() === "GB" ? 1e9 : 1e6));
 }
 
+function OpenAIKnot() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-[19px] w-[19px]" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M11.9 2.4c1.4 0 2.7.7 3.4 1.8 1.4-.2 2.8.4 3.6 1.6.7 1.2.7 2.6 0 3.7.8 1.1.9 2.6.2 3.8-.7 1.3-2 2-3.4 1.9-.6 1.3-1.9 2.1-3.3 2.1-1.4 0-2.7-.7-3.4-1.8-1.4.2-2.8-.4-3.6-1.6-.7-1.2-.7-2.6 0-3.7-.8-1.1-.9-2.6-.2-3.8.7-1.3 2-2 3.4-1.9.6-1.3 1.9-2.1 3.3-2.1Zm.1 3.1-2.8 1.6v3.1l2.8 1.6 2.8-1.6V7.1L12 5.5Zm-1.4 2.4L12 7.1l1.4.8v1.6l-1.4.8-1.4-.8V7.9Zm-3.4-.8c-.6.1-1.1.5-1.4 1-.3.6-.2 1.2.1 1.7l1.6-.9V7.1h-.3Zm9.6 0h-.3v1.8l1.6.9c.3-.5.3-1.1.1-1.7-.3-.5-.8-.9-1.4-1Zm-11 4.8c-.3.5-.3 1.1 0 1.6.3.6.8.9 1.4 1h.3v-1.8l-1.7-.8Zm12.4 0-1.7.8v1.8h.3c.6-.1 1.1-.4 1.4-1 .3-.5.3-1.1 0-1.6Zm-9 1.3v1.8c.3.5.8.8 1.4.8.6 0 1.1-.3 1.4-.8l-2.8-1.8Zm5.6 0L12 15c.3.5.8.8 1.4.8.6 0 1.1-.3 1.4-.8v-1.8Z"
+      />
+    </svg>
+  );
+}
+
+function ParakeetLogo() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-[20px] w-[20px]" aria-hidden="true">
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+        d="M3 12s3.2-4.5 9-4.5S21 12 21 12s-3.2 4.5-9 4.5S3 12 3 12Z"
+      />
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+        d="M9.5 10.5 14 8.8l-1.3 4.7 2.5 1.5"
+      />
+    </svg>
+  );
+}
+
 function ModelTile({ kind }: { kind: LocalModel["kind"] }) {
-  if (kind === "parakeet")
+  if (kind === "parakeet") {
     return (
-      <div className="grid h-9 w-9 place-items-center rounded-lg bg-accentbtn text-app">
-        <Bird size={18} />
+      <div className="grid h-9 w-9 place-items-center rounded-lg bg-zinc-950 text-zinc-200">
+        <ParakeetLogo />
       </div>
     );
+  }
+
   return (
-    <div className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-500 text-white">
-      <AudioLines size={18} />
+    <div className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-600 text-white">
+      <OpenAIKnot />
     </div>
   );
 }
@@ -39,32 +74,35 @@ export default function SpeechModels() {
   const renderModels = (group: string, models: LocalModel[]) =>
     models.map((m) => {
       const id = `${group}:${m.name}`;
-      const bid = m.backendId; // id real del backend (si es descargable)
-      const dl = bid ? downloads[bid] : undefined;
-      const isInstalled = !!bid && installed.includes(bid);
+      const backendId = m.backendId;
+      const dl = backendId ? downloads[backendId] : undefined;
+      const isInstalled = !!backendId && installed.includes(backendId);
+
       const onClick = () => {
-        if (dl || !bid) return; // descargando o aún no disponible
+        if (dl) return;
+        if (!backendId) return;
         if (isInstalled) {
-          // Activar este modelo (cambia el modelo de dictado y re-calienta el motor).
-          setState({ selectedModelId: id, selectedModelName: m.name, activeModelId: bid });
-          invoke("set_active_model", { id: bid });
-        } else downloadModel(bid, parseSize(m.size));
+          setState({ selectedModelId: id, selectedModelName: m.name, activeModelId: backendId });
+          invoke("set_active_model", { id: backendId });
+        } else {
+          downloadModel(backendId, parseSize(m.size));
+        }
       };
-      const right = !bid ? (
-        <span className="pill bg-card text-[11px] text-faint">Soon</span>
-      ) : dl ? (
+
+      const right = dl ? (
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
           <Loader2 size={14} className="animate-spin" /> {pct(dl)}%
         </span>
       ) : isInstalled ? undefined : (
         <Download size={16} className="text-faint" />
       );
+
       return (
         <ProviderRow
           key={id}
           logo={<ModelTile kind={m.kind} />}
           name={m.name}
-          sub={dl ? `Downloading… ${pct(dl)}%` : m.size}
+          sub={dl ? `Downloading... ${pct(dl)}%` : m.size}
           selected={selected === id}
           onClick={onClick}
           right={right}
@@ -74,31 +112,10 @@ export default function SpeechModels() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-1 pt-2">
-      <HeroCard
-        title="Choose your transcription engine."
-        body="Smaller models are faster. Larger models are more accurate. Pick what fits your workflow."
-      />
-
-      <SectionLabel>
-        <Cloud size={14} /> Cloud
-      </SectionLabel>
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-        {CLOUD_STT.map((p, i) => (
-          <ProviderRow
-            key={i}
-            logo={
-              <span className="text-xs font-bold text-muted">{p.name.charAt(0)}</span>
-            }
-            name={p.name}
-            sub={p.sub}
-            right={<SetupBadge />}
-          />
-        ))}
-      </div>
-
       <SectionLabel>
         <MonitorCog size={14} /> Local
       </SectionLabel>
+
       <div className="mb-1 flex items-center gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-faint">
         <Languages size={12} /> English only
       </div>
@@ -123,9 +140,24 @@ export default function SpeechModels() {
           </div>
         }
         name="NVIDIA CUDA"
-        sub="RTX 2000+ · ~631 MB · No CUDA install needed"
+        sub="RTX 2000+ - ~631 MB - No CUDA install needed"
         right={<Download size={16} className="text-faint" />}
       />
+
+      <SectionLabel>
+        <Cloud size={14} /> Cloud / AI Providers
+      </SectionLabel>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        {CLOUD_STT.map((p, i) => (
+          <ProviderRow
+            key={`${p.name}-${p.sub}-${i}`}
+            logo={<span className="text-xs font-bold text-muted">{p.name.charAt(0)}</span>}
+            name={p.name}
+            sub={p.sub}
+            right={<SetupBadge />}
+          />
+        ))}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 mod audio;
 mod hotkey;
 mod inject;
+mod media;
 mod models;
 mod stt;
 
@@ -10,7 +11,7 @@ use audio::{
 };
 use models::{Catalog, ResolvedModel};
 use parking_lot::Mutex;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{
@@ -31,6 +32,28 @@ struct TranscriptEvent {
 enum InjectMode {
     Paste,
     Type,
+    /// No insertar en ninguna app (la página Transcribir solo muestra el texto).
+    Off,
+}
+
+#[derive(serde::Deserialize)]
+struct DictEntry {
+    from: String,
+    to: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct MediaTranscriptLine {
+    time: f32,
+    text: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct MediaTranscriptResult {
+    path: String,
+    file_name: String,
+    duration_seconds: f32,
+    lines: Vec<MediaTranscriptLine>,
 }
 
 struct AppState {
@@ -47,6 +70,8 @@ struct AppState {
     vad_id: Mutex<String>,
     provider: Mutex<String>,
     inject_mode: Mutex<InjectMode>,
+    /// Diccionario del usuario: pares (cuando oigas, escribe) aplicados a cada dictado.
+    dictionary: Mutex<Vec<(String, String)>>,
 }
 
 fn provider_default() -> String {
@@ -88,6 +113,27 @@ fn set_inject_mode(state: State<'_, Arc<AppState>>, mode: InjectMode) {
     *state.inject_mode.lock() = mode;
 }
 
+/// Reemplaza el diccionario del usuario (se aplica a cada dictado antes de insertar).
+#[tauri::command]
+fn set_dictionary(state: State<'_, Arc<AppState>>, entries: Vec<DictEntry>) {
+    *state.dictionary.lock() = entries
+        .into_iter()
+        .filter(|e| !e.from.trim().is_empty())
+        .map(|e| (e.from, e.to))
+        .collect();
+}
+
+/// Inicia/para una sesión desde la UI (página Transcribir). Reutiliza el mismo motor.
+#[tauri::command]
+fn start_recording(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    start_session(&app, &state)
+}
+
+#[tauri::command]
+fn stop_recording(app: AppHandle, state: State<'_, Arc<AppState>>) {
+    stop_session(&app, &state);
+}
+
 /// Cambia el modelo de voz activo: actualiza el id primario, invalida el motor cacheado
 /// y lo re-calienta en segundo plano con el nuevo modelo.
 #[tauri::command]
@@ -125,6 +171,75 @@ async fn download_model(
     .await
     .map(|_| ())
     .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn transcribe_media_file(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    path: String,
+) -> Result<MediaTranscriptResult, String> {
+    let state2: Arc<AppState> = (*state).clone();
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("models");
+    let path_buf = PathBuf::from(path);
+
+    tauri::async_runtime::spawn_blocking(move || {
+        transcribe_media_file_blocking(&state2, &root, path_buf).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn transcribe_media_file_blocking(
+    state: &Arc<AppState>,
+    root: &Path,
+    path: PathBuf,
+) -> anyhow::Result<MediaTranscriptResult> {
+    let decoded = media::decode_to_16k_mono(&path)?;
+    let provider = state.provider.lock().clone();
+    let primary_id = state.primary_id.lock().clone();
+    let model_entry = state
+        .catalog
+        .get(&primary_id)
+        .ok_or_else(|| anyhow::anyhow!("Unknown active speech model"))?;
+    let model = models::resolve(root, model_entry)
+        .ok_or_else(|| anyhow::anyhow!("Download the active speech model before transcribing files"))?;
+    let recognizer = stt::build_recognizer(&model, &provider)?;
+    let dict = state.dictionary.lock().clone();
+
+    let sample_rate = stt::SAMPLE_RATE as usize;
+    let chunk_len = sample_rate * 12;
+    let mut lines = Vec::new();
+
+    for (idx, chunk) in decoded.samples_16k.chunks(chunk_len).enumerate() {
+        if chunk.len() < sample_rate / 2 {
+            continue;
+        }
+        let raw = stt::transcribe(&recognizer, chunk);
+        let cleaned = stt::clean_text(&raw);
+        let text = stt::apply_dictionary(&cleaned, &dict);
+        if !text.trim().is_empty() {
+            lines.push(MediaTranscriptLine {
+                time: (idx * chunk_len) as f32 / sample_rate as f32,
+                text,
+            });
+        }
+    }
+
+    Ok(MediaTranscriptResult {
+        file_name: path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Selected file")
+            .to_string(),
+        path: path.to_string_lossy().into_owned(),
+        duration_seconds: decoded.duration_seconds,
+        lines,
+    })
 }
 
 fn show_main(app: &AppHandle) {
@@ -275,7 +390,9 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
         } else {
             String::new()
         };
-        let final_text = stt::clean_text(&raw);
+        let cleaned = stt::clean_text(&raw);
+        let dict = state2.dictionary.lock().clone();
+        let final_text = stt::apply_dictionary(&cleaned, &dict);
 
         hide_pill(&app2);
 
@@ -287,6 +404,7 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
             let result = match mode {
                 InjectMode::Paste => inject::insert_via_paste(&app2, &final_text),
                 InjectMode::Type => inject::insert_via_typing(&final_text),
+                InjectMode::Off => Ok(()), // Transcribir: no insertar, solo mostrar.
             };
             if let Err(e) = result {
                 eprintln!("[inject] {e}");
@@ -366,6 +484,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, shortcut, event| {
@@ -387,8 +506,12 @@ pub fn run() {
             list_models,
             list_installed_models,
             set_inject_mode,
+            set_dictionary,
+            start_recording,
+            stop_recording,
             set_active_model,
-            download_model
+            download_model,
+            transcribe_media_file
         ])
         .setup(move |app| {
             // Catálogo de modelos (resource o embebido).
@@ -409,11 +532,12 @@ pub fn run() {
                 stop_req: flag(false),
                 capture: Mutex::new(None),
                 engine: Mutex::new(None),
-                primary_id: Mutex::new("parakeet-tdt-0.6b-v2-int8".into()),
+                primary_id: Mutex::new("parakeet-tdt-0.6b-v3-int8".into()),
                 fallback_id: Mutex::new(None),
                 vad_id: Mutex::new("silero-vad".into()),
                 provider: Mutex::new(provider_default()),
                 inject_mode: Mutex::new(InjectMode::Paste),
+                dictionary: Mutex::new(Vec::new()),
             });
             app.manage(state.clone());
 
@@ -466,10 +590,10 @@ pub fn run() {
                 }
             }
 
-            // Hotkey de bajo nivel (hold Ctrl+Shift) → evento "ptt".
+            // Hotkey de bajo nivel: mantener Ctrl+Shift inicia dictado; soltarlo lo para.
             hotkey::spawn_ptt_listener(app.handle().clone());
 
-            // Registrar el atajo fallback Ctrl+Shift+Space.
+            // Atajo fallback con tecla no modificadora.
             let _ = app.global_shortcut().register(fallback_ptt);
 
             // Un único oyente de "ptt" controla las sesiones (vale para ambos caminos).

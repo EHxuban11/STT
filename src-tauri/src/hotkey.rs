@@ -9,12 +9,8 @@ struct Mods {
     shift: bool,
 }
 
-/// Lanza el hook global de teclado. Emite el evento "ptt" = "start"|"stop"
-/// en el flanco de subida/bajada de (Ctrl AND Shift) mantenidos.
-///
-/// WINDOWS: los hooks in-process dejan de entregar eventos cuando el WebView
-/// gana foco (tauri#14770). Para producción, construir esto como un binario
-/// "sidecar" separado y reenviar start/stop por stdio/IPC. Este es el núcleo.
+/// Global keyboard hook. Emits "ptt" = "start" when Ctrl+Shift are held,
+/// and "stop" when either modifier is released.
 pub fn spawn_ptt_listener(app: AppHandle) {
     std::thread::spawn(move || {
         let state = RefCell::new(Mods::default());

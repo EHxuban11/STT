@@ -16,7 +16,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # --- Tauri core + plugins ---
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
-tauri-plugin-global-shortcut = "2"          # camino PTT alternativo (combo con tecla no-modificadora)
+tauri-plugin-global-shortcut = "2"          # fallback PTT Ctrl+Shift+Space
+tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"        # portapapeles para inyección por pegado
 
 # --- Motor de inferencia (crate oficial k2-fsa; enlace estático, libs auto-descargadas) ---
@@ -26,8 +27,9 @@ sherpa-onnx = "1.13"
 cpal = "0.16"
 ringbuf = "0.4"
 rubato = "0.16"
+symphonia = { version = "0.5", features = ["all"] }
 
-# --- Hotkey global (hook de bajo nivel, hold de solo-modificadores) ---
+# --- Hotkey global (hook de bajo nivel, hold Ctrl+Shift) ---
 rdevin = "0.1"
 
 # --- Síntesis de entrada (pegar + teclear) ---

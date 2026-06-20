@@ -1,34 +1,20 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { Outlet, useNavigate, useLocation } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { ChevronRight, Headphones } from "lucide-react";
 import { Sidebar } from "./Sidebar";
 import { WindowControls } from "./WindowControls";
 import { RecordingOverlay } from "./RecordingOverlay";
 import { on, isTauri, invoke } from "@/lib/tauri";
 import { useDictation } from "@/lib/dictation";
-import { showToast, setInstalled, useStore, getState } from "@/lib/store";
-
-// Permite a cada página inyectar contenido en la barra superior (acciones, tabs, etc.).
-const TopBarCtx = createContext<(n: ReactNode) => void>(() => {});
-
-export function useTopBar(node: ReactNode, deps: unknown[] = []) {
-  const set = useContext(TopBarCtx);
-  useEffect(() => {
-    set(node);
-    return () => set(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-}
+import { getState, setInstalled, showToast, useStore } from "@/lib/store";
 
 export function AppLayout() {
-  const [bar, setBar] = useState<ReactNode>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Disparador de dictado (atajo / evento de Tauri) + píldora flotante.
   useDictation();
 
-  // Navegación disparada desde el tray del sistema (evento "navigate").
   useEffect(() => {
     const p = on<string>("navigate", (path) => navigate(path));
     return () => {
@@ -36,7 +22,6 @@ export function AppLayout() {
     };
   }, [navigate]);
 
-  // Aviso "sin modelo" emitido por el backend al intentar dictar sin modelo descargado.
   useEffect(() => {
     const p = on<string>("no-model", (msg) => showToast(msg));
     return () => {
@@ -44,30 +29,42 @@ export function AppLayout() {
     };
   }, []);
 
-  // Reconciliar la lista de modelos instalados con lo que hay realmente en disco (escritorio).
   useEffect(() => {
     if (!isTauri) return;
     invoke<string[]>("list_installed_models").then((ids) => {
       if (!ids) return;
       setInstalled(ids);
-      // Sincronizar el modelo activo persistido con el backend (si está descargado).
       const active = getState().activeModelId;
       if (ids.includes(active)) invoke("set_active_model", { id: active });
     });
-    // Empujar el método de inserción persistido al backend.
     invoke("set_inject_mode", { mode: getState().insertMethod });
+    invoke("set_dictionary", { entries: getState().dictionary });
   }, []);
 
   const toast = useStore((s) => s.toast);
+  const modelName = useStore((s) => s.selectedModelName);
 
   return (
-    <TopBarCtx.Provider value={setBar}>
+    <>
       <div className="flex h-screen overflow-hidden">
         <Sidebar />
         <main className="relative flex min-w-0 flex-1 flex-col bg-app">
-          <header className="drag-region relative z-20 flex h-12 shrink-0 items-center gap-3 px-4">
-            <div className="flex min-w-0 flex-1 items-center">{bar}</div>
-            <WindowControls />
+          <header className="drag-region relative z-20 flex h-12 shrink-0 items-center justify-between gap-3 px-4">
+            <Link
+              to="/speech-models"
+              className="no-drag inline-flex min-w-0 items-center gap-2 rounded-xl border border-line bg-app px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-card"
+              title="Open speech models"
+            >
+              <Headphones size={14} className="shrink-0 text-brand" />
+              <span className="max-w-[220px] truncate">{modelName || "Speech model"}</span>
+              <ChevronRight size={14} className="shrink-0 text-faint" />
+            </Link>
+            <div className="flex items-center gap-2">
+              <div className="no-drag rounded-lg px-2 py-1 text-xs font-semibold text-muted">
+                XC
+              </div>
+              <WindowControls />
+            </div>
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-16">
             <motion.div
@@ -81,10 +78,9 @@ export function AppLayout() {
           </div>
         </main>
       </div>
-      {/* En escritorio (Tauri) el indicador es la ventana flotante; en navegador, el overlay de demo. */}
+
       {!isTauri && <RecordingOverlay />}
 
-      {/* Aviso efímero (toast) */}
       {toast && (
         <div className="pointer-events-none fixed inset-x-0 top-4 z-[70] flex justify-center px-4">
           <div className="pointer-events-auto rounded-full bg-accentbtn px-4 py-2 text-sm font-medium text-app shadow-pill">
@@ -92,6 +88,6 @@ export function AppLayout() {
           </div>
         </div>
       )}
-    </TopBarCtx.Provider>
+    </>
   );
 }
