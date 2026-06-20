@@ -7,7 +7,6 @@ import { on } from "@/lib/tauri";
 const NB = 15;
 
 export default function Pill() {
-  const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const levelRef = useRef(0);
   const barsRef = useRef<(HTMLSpanElement | null)[]>([]);
@@ -63,7 +62,6 @@ export default function Pill() {
     subs.push(
       on<string>("state", (s) => {
         if (s === "recording") {
-          setText("");
           setBusy(false);
           startLoop();
         } else if (s === "idle") {
@@ -71,13 +69,10 @@ export default function Pill() {
         }
       })
     );
+    // Mientras finaliza el STT mostramos un spinner breve en lugar del punto rojo.
     subs.push(
       on<{ text: string; interim: boolean }>("transcript", (t) => {
-        if (t.interim) setText(t.text);
-        else if (t.text.trim()) {
-          setBusy(true);
-          setText(t.text);
-        }
+        if (!t.interim && t.text.trim()) setBusy(true);
       })
     );
     startLoop(); // por si la ventana se muestra ya grabando
@@ -111,12 +106,6 @@ export default function Pill() {
             />
           ))}
         </div>
-
-        {text ? (
-          <span className="max-w-[240px] truncate text-[12px] font-medium text-white/85">{text}</span>
-        ) : (
-          <span className="text-[12px] font-medium text-white/55">Listening…</span>
-        )}
       </div>
     </div>
   );
