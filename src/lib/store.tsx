@@ -3,6 +3,7 @@ import { invoke } from "./tauri";
 
 // Store global mínimo, persistido en localStorage (se migrará a Tauri Store en escritorio).
 export type RecordingPos = "top" | "bottom" | "off";
+export type DictionaryMode = "off" | "postprocess";
 
 // Entrada de diccionario: "cuando oigas {from}, escribe {to}".
 export interface DictEntry {
@@ -26,6 +27,7 @@ export interface AppState {
   };
   workflowsEnabled: Record<string, boolean>;
   dictionary: DictEntry[];
+  dictionaryMode: DictionaryMode;
   transcriptions: Transcription[];
   installed: string[]; // ids de BACKEND de modelos descargados (p.ej. "parakeet-tdt-0.6b-v2-int8")
   activeModelId: string; // id de BACKEND del modelo activo (el que usa el dictado)
@@ -61,6 +63,7 @@ const DEFAULT: AppState = {
   },
   workflowsEnabled: {},
   dictionary: [],
+  dictionaryMode: "postprocess",
   transcriptions: [],
   installed: [], // se rellena desde el backend (list_installed_models); en navegador, por descargas simuladas
   activeModelId: "parakeet-tdt-0.6b-v3-int8",
@@ -146,6 +149,12 @@ export function setInstalled(ids: string[]) {
 export function saveDictionary(entries: DictEntry[]) {
   setState({ dictionary: entries });
   invoke("set_dictionary", { entries });
+}
+
+/** Cambia cómo se aplica el diccionario del usuario. */
+export function saveDictionaryMode(mode: DictionaryMode) {
+  setState({ dictionaryMode: mode });
+  invoke("set_dictionary_mode", { mode });
 }
 
 let toastTimer = 0;

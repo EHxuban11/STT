@@ -347,20 +347,28 @@ function TranscribeModal({
   onClose: () => void;
   onSubmit: () => void;
 }) {
+  const [pickError, setPickError] = useState<string | null>(null);
+
   async function chooseFile() {
-    if (!isTauri) return;
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    const selected = await open({
-      multiple: false,
-      filters: [
-        {
-          name: "Audio and video",
-          extensions: ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus", "mp4", "mkv", "mov", "webm"],
-        },
-      ],
-    });
-    if (typeof selected === "string") {
-      onSelectFile({ path: selected, name: basename(selected) });
+    setPickError(null);
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        multiple: false,
+        filters: [
+          {
+            name: "Audio and video",
+            extensions: ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus", "mp4", "mkv", "mov", "webm"],
+          },
+        ],
+      });
+      const path = Array.isArray(selected) ? selected[0] : selected;
+      if (typeof path === "string" && path) {
+        onSelectFile({ path, name: basename(path) });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setPickError(`Could not open the file picker. ${message}`);
     }
   }
 
@@ -416,6 +424,7 @@ function TranscribeModal({
                 <span className="mt-2 text-xs text-faint">Audio and video files supported</span>
               </button>
             )}
+            {pickError && <p className="mt-2 text-xs leading-5 text-red-500">{pickError}</p>}
           </Field>
 
           <p className="text-xs leading-5 text-muted">
@@ -463,6 +472,7 @@ function TranscriptDetail({
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(job.durationSeconds || 0);
   const [playing, setPlaying] = useState(false);
+  const [playerError, setPlayerError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -484,13 +494,20 @@ function TranscriptDetail({
   async function togglePlay() {
     const audio = audioRef.current;
     if (!audio) return;
+    setPlayerError(null);
     if (playing) {
       audio.pause();
       setPlaying(false);
       return;
     }
-    await audio.play();
-    setPlaying(true);
+    try {
+      await audio.play();
+      setPlaying(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setPlayerError(`Could not play this media file. ${message}`);
+      setPlaying(false);
+    }
   }
 
   return (
@@ -503,6 +520,7 @@ function TranscriptDetail({
           if (Number.isFinite(d)) setDuration(d);
         }}
         onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)}
+        onError={() => setPlayerError("Could not load this media file for playback.")}
         onPause={() => setPlaying(false)}
         onEnded={() => setPlaying(false)}
       />
@@ -543,6 +561,11 @@ function TranscriptDetail({
             onPlay={togglePlay}
             onSeek={seek}
           />
+          {playerError && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
+              {playerError}
+            </div>
+          )}
 
           <div>
             <h1 className="text-2xl font-bold leading-tight tracking-tight text-ink">{job.fileName}</h1>

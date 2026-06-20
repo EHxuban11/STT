@@ -38,6 +38,7 @@ export function AppLayout() {
       if (ids.includes(active)) invoke("set_active_model", { id: active });
     });
     invoke("set_inject_mode", { mode: getState().insertMethod });
+    invoke("set_dictionary_mode", { mode: getState().dictionaryMode });
     invoke("set_dictionary", { entries: getState().dictionary });
   }, []);
 

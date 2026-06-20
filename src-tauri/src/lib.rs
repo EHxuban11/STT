@@ -36,6 +36,13 @@ enum InjectMode {
     Off,
 }
 
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum DictionaryMode {
+    Off,
+    Postprocess,
+}
+
 #[derive(serde::Deserialize)]
 struct DictEntry {
     from: String,
@@ -70,6 +77,7 @@ struct AppState {
     vad_id: Mutex<String>,
     provider: Mutex<String>,
     inject_mode: Mutex<InjectMode>,
+    dictionary_mode: Mutex<DictionaryMode>,
     /// Diccionario del usuario: pares (cuando oigas, escribe) aplicados a cada dictado.
     dictionary: Mutex<Vec<(String, String)>>,
 }
@@ -113,6 +121,11 @@ fn set_inject_mode(state: State<'_, Arc<AppState>>, mode: InjectMode) {
     *state.inject_mode.lock() = mode;
 }
 
+#[tauri::command]
+fn set_dictionary_mode(state: State<'_, Arc<AppState>>, mode: DictionaryMode) {
+    *state.dictionary_mode.lock() = mode;
+}
+
 /// Reemplaza el diccionario del usuario (se aplica a cada dictado antes de insertar).
 #[tauri::command]
 fn set_dictionary(state: State<'_, Arc<AppState>>, entries: Vec<DictEntry>) {
@@ -121,6 +134,17 @@ fn set_dictionary(state: State<'_, Arc<AppState>>, entries: Vec<DictEntry>) {
         .filter(|e| !e.from.trim().is_empty())
         .map(|e| (e.from, e.to))
         .collect();
+}
+
+fn apply_dictionary_for_mode(
+    text: &str,
+    dict: &[(String, String)],
+    mode: DictionaryMode,
+) -> String {
+    match mode {
+        DictionaryMode::Off => text.to_string(),
+        DictionaryMode::Postprocess => stt::apply_dictionary(text, dict),
+    }
 }
 
 /// Inicia/para una sesión desde la UI (página Transcribir). Reutiliza el mismo motor.
@@ -210,6 +234,7 @@ fn transcribe_media_file_blocking(
         .ok_or_else(|| anyhow::anyhow!("Download the active speech model before transcribing files"))?;
     let recognizer = stt::build_recognizer(&model, &provider)?;
     let dict = state.dictionary.lock().clone();
+    let dictionary_mode = *state.dictionary_mode.lock();
 
     let sample_rate = stt::SAMPLE_RATE as usize;
     let chunk_len = sample_rate * 12;
@@ -221,7 +246,7 @@ fn transcribe_media_file_blocking(
         }
         let raw = stt::transcribe(&recognizer, chunk);
         let cleaned = stt::clean_text(&raw);
-        let text = stt::apply_dictionary(&cleaned, &dict);
+        let text = apply_dictionary_for_mode(&cleaned, &dict, dictionary_mode);
         if !text.trim().is_empty() {
             lines.push(MediaTranscriptLine {
                 time: (idx * chunk_len) as f32 / sample_rate as f32,
@@ -392,7 +417,8 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
         };
         let cleaned = stt::clean_text(&raw);
         let dict = state2.dictionary.lock().clone();
-        let final_text = stt::apply_dictionary(&cleaned, &dict);
+        let dictionary_mode = *state2.dictionary_mode.lock();
+        let final_text = apply_dictionary_for_mode(&cleaned, &dict, dictionary_mode);
 
         hide_pill(&app2);
 
@@ -506,6 +532,7 @@ pub fn run() {
             list_models,
             list_installed_models,
             set_inject_mode,
+            set_dictionary_mode,
             set_dictionary,
             start_recording,
             stop_recording,
@@ -537,6 +564,7 @@ pub fn run() {
                 vad_id: Mutex::new("silero-vad".into()),
                 provider: Mutex::new(provider_default()),
                 inject_mode: Mutex::new(InjectMode::Paste),
+                dictionary_mode: Mutex::new(DictionaryMode::Postprocess),
                 dictionary: Mutex::new(Vec::new()),
             });
             app.manage(state.clone());

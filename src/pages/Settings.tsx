@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { Search, CheckCircle2 } from "lucide-react";
 import clsx from "clsx";
 import {
@@ -9,7 +10,8 @@ import {
   SegmentedTabs,
 } from "@/components/ui";
 import { SETTINGS_SECTIONS, SettingsSection, SHORTCUTS } from "@/lib/data";
-import { useStore, setState } from "@/lib/store";
+import { useStore, setState, saveDictionaryMode } from "@/lib/store";
+import type { DictionaryMode } from "@/lib/store";
 import { invoke } from "@/lib/tauri";
 
 // Selector real del método de inserción, cableado al backend (set_inject_mode).
@@ -32,7 +34,20 @@ function InsertMethodSelect() {
 }
 
 export default function Settings() {
-  const [section, setSection] = useState<SettingsSection>("Account");
+  const location = useLocation();
+  const [section, setSection] = useState<SettingsSection>(() => {
+    const requested = new URLSearchParams(location.search).get("section");
+    return SETTINGS_SECTIONS.includes(requested as SettingsSection)
+      ? (requested as SettingsSection)
+      : "Account";
+  });
+
+  useEffect(() => {
+    const requested = new URLSearchParams(location.search).get("section");
+    if (SETTINGS_SECTIONS.includes(requested as SettingsSection)) {
+      setSection(requested as SettingsSection);
+    }
+  }, [location.search]);
 
   return (
     <div className="mx-auto flex h-[calc(100vh-7rem)] max-w-5xl overflow-hidden rounded-2xl border border-line bg-app">
@@ -74,6 +89,7 @@ export default function Settings() {
           {section === "General" && <GeneralSection />}
           {section === "Audio" && <AudioSection />}
           {section === "Language" && <LanguageSection />}
+          {section === "Dictionary" && <DictionarySection />}
           {section === "Recording" && <RecordingSection />}
           {section === "Shortcuts" && <ShortcutsSection />}
           {section === "Permissions" && <PermissionsSection />}
@@ -177,6 +193,45 @@ function LanguageSection() {
         <div className="mt-2"><Dropdown value="English" /></div>
       </div>
       <SettingRow label="English Spelling" help="Choose the spelling convention used for English transcriptions" control={<Dropdown value="American English (default)" />} />
+    </Card>
+  );
+}
+
+function DictionaryModeSelect() {
+  const mode = useStore((s) => s.dictionaryMode);
+  const change = (value: DictionaryMode) => saveDictionaryMode(value);
+
+  return (
+    <select
+      value={mode}
+      onChange={(event) => change(event.target.value as DictionaryMode)}
+      className="rounded-xl border border-line bg-app px-3 py-2 text-sm font-medium text-ink outline-none focus:border-brand"
+    >
+      <option value="postprocess">Post-processing</option>
+      <option value="off">Off</option>
+    </select>
+  );
+}
+
+function DictionarySection() {
+  const dictionary = useStore((s) => s.dictionary);
+
+  return (
+    <Card>
+      <SettingRow
+        label="Apply Dictionary"
+        help="Post-processing applies exact replacements after the speech model returns text. Turn it off to compare raw model output."
+        control={<DictionaryModeSelect />}
+      />
+      <SettingRow
+        label="Vocabulary"
+        help={`${dictionary.length} saved ${dictionary.length === 1 ? "entry" : "entries"}.`}
+        control={
+          <Link to="/dictionary" className="btn-secondary px-3.5 py-2 text-[13px]">
+            Edit Dictionary
+          </Link>
+        }
+      />
     </Card>
   );
 }
