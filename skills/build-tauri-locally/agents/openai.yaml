@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Tauri Locally"
+  short_description: "Build the Windows Tauri installer on this PC."
+  default_prompt: "Build the Yawning Face STT Windows installer locally and report artifact paths, timing, and dependency status."
