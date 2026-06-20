@@ -13,10 +13,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS universal (Intel + Apple silicon) en runner Apple-silicon
-          - platform: macos-14
-            args: '--target universal-apple-darwin'
-            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
           # Windows x64
           - platform: windows-latest
             args: ''
