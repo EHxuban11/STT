@@ -40,11 +40,6 @@ export function stopDictation() {
   timers.push(window.setTimeout(() => setState({ recording: null }), 2600));
 }
 
-function demoOnce() {
-  startDictation();
-  timers.push(window.setTimeout(stopDictation, 1800));
-}
-
 /* ---------------- Hook: conecta backend (Tauri) o demo (navegador) ---------------- */
 export function useDictation() {
   useEffect(() => {
@@ -72,17 +67,25 @@ export function useDictation() {
       })
     );
 
-    // Demo en navegador: Ctrl+Shift+Space.
+    // Demo en navegador: mantener Ctrl+Shift.
     const onKey = (e: KeyboardEvent) => {
-      if (!isTauri && e.ctrlKey && e.shiftKey && e.code === "Space") {
+      if (!isTauri && e.ctrlKey && e.shiftKey && getState().recording !== "listening") {
         e.preventDefault();
-        demoOnce();
+        startDictation();
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!isTauri && getState().recording === "listening" && (e.key === "Control" || e.key === "Shift")) {
+        e.preventDefault();
+        stopDictation();
       }
     };
     window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
 
     return () => {
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
       subs.forEach((p) => p.then((un) => un()));
       clearTimers();
     };

@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Mic, Check, ArrowRight, Globe, Languages, Loader2, Download } from "lucide-react";
+import { Mic, Check, ArrowRight, Globe, Languages, Loader2, Download, Circle } from "lucide-react";
 import { Logo } from "@/components/Logo";
-import { useStore, setState } from "@/lib/store";
+import { useStore, setState, getState } from "@/lib/store";
 import { downloadModel } from "@/lib/models";
 import { invoke } from "@/lib/tauri";
 
@@ -47,10 +47,14 @@ export default function Onboarding() {
   const [step, setStep] = useState(0);
   const installed = useStore((s) => s.installed);
   const downloads = useStore((s) => s.downloads);
+  const activeModelId = useStore((s) => s.activeModelId);
+  const selectedModelName = useStore((s) => s.selectedModelName);
 
   const next = () => setStep((s) => Math.min(STEPS - 1, s + 1));
   const finish = () => setState({ onboarded: true });
-  const anyInstalled = MODELS.some((m) => installed.includes(m.id));
+  const activeModel = MODELS.find((m) => m.id === activeModelId);
+  const activeDownload = activeModel ? downloads[activeModel.id] : undefined;
+  const activeReady = !!activeModel && installed.includes(activeModel.id);
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-app">
@@ -102,37 +106,63 @@ export default function Onboarding() {
                 {MODELS.map((m) => {
                   const inst = installed.includes(m.id);
                   const dl = downloads[m.id];
+                  const selected = inst && activeModelId === m.id;
+                  const progress = dl?.total ? Math.min(100, Math.round((dl.done / dl.total) * 100)) : 0;
                   const Icon = m.icon;
-                  const onClick = () => {
+                  const selectModel = () => {
+                    setState({ activeModelId: m.id, selectedModelId: m.uiId, selectedModelName: m.name });
+                    invoke("set_active_model", { id: m.id });
+                  };
+                  const onClick = async () => {
                     if (dl) return;
                     if (inst) {
-                      setState({ activeModelId: m.id, selectedModelId: m.uiId, selectedModelName: m.name });
-                      invoke("set_active_model", { id: m.id });
-                    } else downloadModel(m.id, m.bytes);
+                      selectModel();
+                    } else {
+                      await downloadModel(m.id, m.bytes);
+                      if (getState().installed.includes(m.id)) selectModel();
+                    }
                   };
                   return (
                     <button
                       key={m.id}
                       onClick={onClick}
-                      className="flex w-full items-center gap-3 rounded-xl border border-line bg-app p-3 text-left transition-colors hover:bg-card"
+                      className={[
+                        "w-full rounded-xl border bg-app p-3 text-left transition-colors hover:bg-card",
+                        selected ? "border-brand shadow-[0_0_0_1px_rgba(81,95,230,0.16)]" : "border-line",
+                      ].join(" ")}
                     >
-                      <div className="grid h-10 w-10 place-items-center rounded-lg bg-brand-soft text-brand">
-                        <Icon size={18} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-ink">{m.name}</div>
-                        <div className="text-xs text-muted">{m.sub}</div>
+                      <div className="flex items-center gap-3">
+                        <div className="grid h-10 w-10 place-items-center rounded-lg bg-brand-soft text-brand">
+                          <Icon size={18} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-ink">{m.name}</div>
+                          <div className="text-xs text-muted">{m.sub}</div>
+                        </div>
+                        {dl ? (
+                          <span className="flex items-center gap-1 text-xs font-medium text-muted">
+                            <Loader2 size={14} className="animate-spin" />
+                            {progress}%
+                          </span>
+                        ) : selected ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2 py-1 text-xs font-semibold text-brand">
+                            <Check size={13} />
+                            Selected
+                          </span>
+                        ) : inst ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-card px-2 py-1 text-xs font-medium text-muted">
+                            <Circle size={12} />
+                            Ready
+                          </span>
+                        ) : (
+                          <Download size={16} className="text-faint" />
+                        )}
                       </div>
                       {dl ? (
-                        <span className="flex items-center gap-1 text-xs font-medium text-muted">
-                          <Loader2 size={14} className="animate-spin" />
-                          {Math.round((dl.done / dl.total) * 100)}%
-                        </span>
-                      ) : inst ? (
-                        <Check size={18} className="text-success" />
-                      ) : (
-                        <Download size={16} className="text-faint" />
-                      )}
+                        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-line">
+                          <div className="h-full rounded-full bg-brand" style={{ width: `${progress}%` }} />
+                        </div>
+                      ) : null}
                     </button>
                   );
                 })}
@@ -144,9 +174,40 @@ export default function Onboarding() {
             <>
               <h1 className="text-2xl font-bold tracking-tight text-ink">Try it out</h1>
               <p className="mt-2 leading-relaxed text-muted">
-                Click the box below, hold <kbd className="kbd">Ctrl</kbd> + <kbd className="kbd">⇧</kbd>{" "}
-                + <kbd className="kbd">Space</kbd>, say something, then release.
+                Click the box below, hold <kbd className="kbd">Ctrl</kbd> + <kbd className="kbd">Shift</kbd>,
+                say something, then release.
               </p>
+              <div className="mt-4 rounded-xl border border-line bg-card p-3 text-left">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-ink">{selectedModelName}</div>
+                    <div className="text-xs text-muted">Active speech model</div>
+                  </div>
+                  {activeDownload ? (
+                    <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
+                      <Loader2 size={14} className="animate-spin" />
+                      Downloading {Math.round((activeDownload.done / activeDownload.total) * 100)}%
+                    </span>
+                  ) : activeReady ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
+                      <Check size={13} />
+                      Ready
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium text-amber-700">Download required</span>
+                  )}
+                </div>
+                {activeDownload ? (
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-line">
+                    <div
+                      className="h-full rounded-full bg-brand"
+                      style={{
+                        width: `${Math.min(100, Math.round((activeDownload.done / activeDownload.total) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </div>
               <textarea
                 placeholder="Your words will appear here…"
                 className="mt-4 h-28 w-full resize-none rounded-xl border border-line bg-app p-3 text-sm outline-none focus:border-brand"
@@ -158,7 +219,7 @@ export default function Onboarding() {
             {step < STEPS - 1 ? (
               <button
                 onClick={next}
-                disabled={step === 2 && !anyInstalled}
+                disabled={step === 2 && !activeReady}
                 className="btn-primary mx-auto px-6 py-2.5 disabled:opacity-40"
               >
                 {step === 0 ? "Get started" : "Continue"} <ArrowRight size={16} />

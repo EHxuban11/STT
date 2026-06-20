@@ -19,7 +19,6 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Listener, Manager, State,
 };
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 #[derive(Clone, serde::Serialize)]
 struct TranscriptEvent {
@@ -505,28 +504,9 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Atajo fallback (combo con tecla no-modificadora): Ctrl+Shift+Space.
-    let fallback_ptt = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
-
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(move |app, shortcut, event| {
-                    if shortcut == &fallback_ptt {
-                        match event.state() {
-                            ShortcutState::Pressed => {
-                                let _ = app.emit("ptt", "start");
-                            }
-                            ShortcutState::Released => {
-                                let _ = app.emit("ptt", "stop");
-                            }
-                        }
-                    }
-                })
-                .build(),
-        )
         .invoke_handler(tauri::generate_handler![
             get_app_info,
             list_models,
@@ -620,9 +600,6 @@ pub fn run() {
 
             // Hotkey de bajo nivel: mantener Ctrl+Shift inicia dictado; soltarlo lo para.
             hotkey::spawn_ptt_listener(app.handle().clone());
-
-            // Atajo fallback con tecla no modificadora.
-            let _ = app.global_shortcut().register(fallback_ptt);
 
             // Un único oyente de "ptt" controla las sesiones (vale para ambos caminos).
             let app_handle = app.handle().clone();
