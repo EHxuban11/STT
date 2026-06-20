@@ -3,36 +3,39 @@
 @tailwind utilities;
 
 :root {
-  /* Light / warm near-white is the DEFAULT (ship light, no dark mode). */
-  --background: #fefdfb; /* warm near-white canvas */
-  --foreground: #2a2720; /* warm near-black ink */
+  /* Light / warm near-white is the DEFAULT (ship light, no dark mode).
+     Colors are space-separated RGB channels so Tailwind's opacity modifiers
+     (bg-primary/10, hover:bg-primary/80, bg-secondary/40, ring-ring/50, …)
+     resolve via rgb(var(--x) / <alpha-value>). Hex here silently drops them. */
+  --background: 254 253 251; /* #fefdfb — warm near-white canvas */
+  --foreground: 42 39 32; /* #2a2720 — warm near-black ink */
 
-  --card: #ffffff;
-  --card-foreground: #2a2720;
+  --card: 255 255 255; /* #ffffff */
+  --card-foreground: 42 39 32;
 
   /* Amber is an ACCENT only — and text ON amber is dark ink, never white. */
-  --primary: #ebb303;
-  --primary-foreground: #2a2720;
+  --primary: 235 179 3; /* #ebb303 */
+  --primary-foreground: 42 39 32; /* #2a2720 — dark ink on amber */
 
-  --secondary: #f8f6f1;
-  --secondary-foreground: #2a2720;
+  --secondary: 248 246 241; /* #f8f6f1 */
+  --secondary-foreground: 42 39 32;
 
-  --muted: #f8f6f1;
-  --muted-foreground: #736d5e;
+  --muted: 248 246 241; /* #f8f6f1 */
+  --muted-foreground: 115 109 94; /* #736d5e */
 
-  --accent: #f5f2ea;
-  --accent-foreground: #2a2720;
+  --accent: 245 242 234; /* #f5f2ea */
+  --accent-foreground: 42 39 32;
 
-  --border: #ebe8df;
-  --input: #ebe8df;
-  --ring: #ebb303;
+  --border: 235 232 223; /* #ebe8df */
+  --input: 235 232 223;
+  --ring: 235 179 3; /* #ebb303 */
 
   --radius: 1rem;
 }
 
 * {
   box-sizing: border-box;
-  border-color: var(--border);
+  border-color: rgb(var(--border));
 }
 
 html {
@@ -46,8 +49,8 @@ html {
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: rgb(var(--background));
+  color: rgb(var(--foreground));
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -65,15 +68,15 @@ h6 {
 
 /* Warm amber selection. */
 ::selection {
-  background: rgba(235, 179, 3, 0.3);
-  color: #2a2720;
+  background: rgb(var(--primary) / 0.3);
+  color: rgb(var(--foreground));
 }
 
 ::-webkit-scrollbar {
   width: 12px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--background);
+  background: rgb(var(--background));
 }
 ::-webkit-scrollbar-thumb {
   background: #e0dccf;

@@ -38,14 +38,17 @@ export default function SpeechModels() {
   const renderModels = (group: string, models: LocalModel[]) =>
     models.map((m) => {
       const id = `${group}:${m.name}`;
-      const isInstalled = installed.includes(id);
-      const dl = downloads[id];
+      const bid = m.backendId; // id real del backend (si es descargable)
+      const dl = bid ? downloads[bid] : undefined;
+      const isInstalled = !!bid && installed.includes(bid);
       const onClick = () => {
-        if (dl) return;
+        if (dl || !bid) return; // descargando o aún no disponible
         if (isInstalled) setState({ selectedModelId: id, selectedModelName: m.name });
-        else downloadModel(id, parseSize(m.size));
+        else downloadModel(bid, parseSize(m.size));
       };
-      const right = dl ? (
+      const right = !bid ? (
+        <span className="pill bg-card text-[11px] text-faint">Soon</span>
+      ) : dl ? (
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
           <Loader2 size={14} className="animate-spin" /> {pct(dl)}%
         </span>

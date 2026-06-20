@@ -137,8 +137,8 @@ export default function Home() {
       {/* Hint de dictado */}
       <HeroCard
         title={
-          <span className="flex items-center gap-2">
-            Hold <Kbd>Ctrl</Kbd> + <Kbd>⇧</Kbd> to dictate anywhere.
+          <span className="flex flex-wrap items-center gap-2">
+            Hold <Kbd>Ctrl</Kbd> + <Kbd>⇧</Kbd> + <Kbd>Space</Kbd> to dictate anywhere.
           </span>
         }
         right={<IconBadge icon={Mic} />}

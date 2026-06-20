@@ -19,11 +19,13 @@ export interface AppState {
   };
   workflowsEnabled: Record<string, boolean>;
   transcriptions: Transcription[];
-  installed: string[]; // ids de modelos descargados
+  installed: string[]; // ids de BACKEND de modelos descargados (p.ej. "parakeet-tdt-0.6b-v2-int8")
+  insertMethod: "paste" | "type"; // método de inserción de texto
   // Estado efímero (no se persiste)
   downloads: Record<string, { done: number; total: number }>;
   recording: "idle" | "listening" | "transcribing" | "done" | null;
   liveText: string;
+  toast: string | null;
 }
 
 export interface Transcription {
@@ -49,15 +51,17 @@ const DEFAULT: AppState = {
   },
   workflowsEnabled: {},
   transcriptions: [],
-  installed: ["en:Parakeet V2"], // V2 viene "instalado" por defecto (como Vowen)
+  installed: [], // se rellena desde el backend (list_installed_models); en navegador, por descargas simuladas
+  insertMethod: "paste",
   downloads: {},
   recording: null,
   liveText: "",
+  toast: null,
 };
 
 const KEY = "vowen.state";
 // Campos que NO se persisten en localStorage.
-const EPHEMERAL: (keyof AppState)[] = ["recording", "liveText", "downloads"];
+const EPHEMERAL: (keyof AppState)[] = ["recording", "liveText", "downloads", "toast"];
 
 function load(): AppState {
   try {
@@ -103,6 +107,19 @@ export function clearDownload(id: string) {
     delete d[id];
     return { downloads: d };
   });
+}
+
+/** Reemplaza la lista de modelos instalados (la que reporta el backend). */
+export function setInstalled(ids: string[]) {
+  setState({ installed: ids });
+}
+
+let toastTimer = 0;
+/** Muestra un aviso efímero (toast) en la app. */
+export function showToast(msg: string, ms = 4500) {
+  setState({ toast: msg });
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => setState({ toast: null }), ms);
 }
 
 /** Añade una transcripción al historial (y deja `liveText` con el último texto). */

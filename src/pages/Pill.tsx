@@ -2,28 +2,61 @@ import { useEffect, useRef, useState } from "react";
 import { on } from "@/lib/tauri";
 
 // Isla flotante de grabación (ventana transparente always-on-top en Tauri).
-// Muestra un medidor de audio en vivo a partir de los eventos "audio-level" del backend.
-const NB = 15; // nº de barras
+// Medidor de audio en vivo a partir de los eventos "audio-level" del backend.
+// Las barras se animan por REFS (sin setState por frame) y el bucle se para al inactivar.
+const NB = 15;
 
 export default function Pill() {
   const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false); // true = transcribiendo
+  const [busy, setBusy] = useState(false);
   const levelRef = useRef(0);
-  const [heights, setHeights] = useState<number[]>(() => Array(NB).fill(0.12));
+  const barsRef = useRef<(HTMLSpanElement | null)[]>([]);
+  const rafRef = useRef(0);
 
   // Fondo transparente para esta ventana flotante.
   useEffect(() => {
-    const prevHtml = document.documentElement.style.background;
-    const prevBody = document.body.style.background;
+    const ph = document.documentElement.style.background;
+    const pb = document.body.style.background;
     document.documentElement.style.background = "transparent";
     document.body.style.background = "transparent";
     return () => {
-      document.documentElement.style.background = prevHtml;
-      document.body.style.background = prevBody;
+      document.documentElement.style.background = ph;
+      document.body.style.background = pb;
     };
   }, []);
 
-  // Eventos del backend.
+  function startLoop() {
+    if (rafRef.current) return;
+    const tick = () => {
+      const lvl = Math.min(1, levelRef.current * 7); // amplificar RMS
+      for (let i = 0; i < NB; i++) {
+        const el = barsRef.current[i];
+        if (!el) continue;
+        const center = 1 - Math.abs(i - (NB - 1) / 2) / ((NB - 1) / 2);
+        const target = 0.1 + lvl * center * (0.55 + 0.45 * Math.random());
+        const cur = parseFloat(el.dataset.h || "0.12");
+        const nh = cur + (target - cur) * 0.5; // suavizado
+        el.dataset.h = String(nh);
+        el.style.height = `${Math.max(3, nh * 24)}px`;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  }
+
+  function stopLoop() {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    }
+    for (const el of barsRef.current) {
+      if (el) {
+        el.dataset.h = "0.12";
+        el.style.height = "3px";
+      }
+    }
+  }
+
   useEffect(() => {
     const subs: Promise<() => void>[] = [];
     subs.push(on<number>("audio-level", (lvl) => (levelRef.current = lvl)));
@@ -32,6 +65,9 @@ export default function Pill() {
         if (s === "recording") {
           setText("");
           setBusy(false);
+          startLoop();
+        } else if (s === "idle") {
+          window.setTimeout(stopLoop, 300);
         }
       })
     );
@@ -44,27 +80,11 @@ export default function Pill() {
         }
       })
     );
-    return () => subs.forEach((p) => p.then((u) => u()));
-  }, []);
-
-  // Animación del espectrograma (~60fps) escalada por el nivel RMS.
-  useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      const lvl = Math.min(1, levelRef.current * 7); // amplificar RMS
-      setHeights((prev) =>
-        prev.map((h, i) => {
-          // forma de campana: más alto en el centro
-          const center = 1 - Math.abs(i - (NB - 1) / 2) / ((NB - 1) / 2);
-          const target = 0.1 + lvl * center * (0.55 + 0.45 * Math.random());
-          // suavizado
-          return h + (target - h) * 0.5;
-        })
-      );
-      raf = requestAnimationFrame(tick);
+    startLoop(); // por si la ventana se muestra ya grabando
+    return () => {
+      subs.forEach((p) => p.then((u) => u()));
+      stopLoop();
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
   }, []);
 
   return (
@@ -80,11 +100,14 @@ export default function Pill() {
         )}
 
         <div className="flex h-6 items-center gap-[2px]">
-          {heights.map((h, i) => (
+          {Array.from({ length: NB }).map((_, i) => (
             <span
               key={i}
-              className="w-[3px] rounded-full bg-brand transition-[height] duration-75"
-              style={{ height: `${Math.max(3, h * 24)}px` }}
+              ref={(el) => {
+                barsRef.current[i] = el;
+              }}
+              className="w-[3px] rounded-full bg-brand"
+              style={{ height: "3px" }}
             />
           ))}
         </div>

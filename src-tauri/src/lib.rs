@@ -35,7 +35,10 @@ enum InjectMode {
 
 struct AppState {
     catalog: Catalog,
+    /// "Hay una sesión activa" (capturando o finalizando). Se reclama con try_claim.
     recording: RecordingFlag,
+    /// "Se ha pedido parar la captura" (lo activa stop_session; el hilo lo observa).
+    stop_req: RecordingFlag,
     capture: Mutex<Option<Capture>>,
     /// Motor STT cacheado: se carga una vez y se reutiliza entre dictados.
     engine: Mutex<Option<stt::Engine>>,
@@ -62,6 +65,22 @@ fn get_app_info() -> serde_json::Value {
 #[tauri::command]
 fn list_models(state: State<'_, Arc<AppState>>) -> Vec<models::ModelEntry> {
     state.catalog.models.clone()
+}
+
+/// Ids de los modelos que están realmente descargados (todos sus ficheros en disco).
+#[tauri::command]
+fn list_installed_models(app: AppHandle, state: State<'_, Arc<AppState>>) -> Vec<String> {
+    let root = match app.path().app_data_dir() {
+        Ok(d) => d.join("models"),
+        Err(_) => return Vec::new(),
+    };
+    state
+        .catalog
+        .models
+        .iter()
+        .filter(|e| models::resolve(&root, e).is_some())
+        .map(|e| e.id.clone())
+        .collect()
 }
 
 #[tauri::command]
@@ -140,36 +159,57 @@ fn build_engine(state: &Arc<AppState>, root: &Path) -> Option<stt::Engine> {
     Some(stt::Engine::new(recognizer, fb, vad))
 }
 
-/// Inicia una sesión: SIEMPRE captura audio y muestra la isla flotante con el nivel de voz.
-/// Si hay modelo, transcribe e inserta el texto al soltar. El motor se carga UNA vez y se reutiliza.
+/// Inicia una sesión: reclama la grabación de forma atómica, muestra la isla flotante,
+/// captura audio y (si hay modelo) transcribe e inserta el texto al soltar.
+/// El motor se carga UNA vez y se reutiliza. La grabación se libera al terminar el hilo.
 fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
-    if is_recording(&state.recording) {
+    // Reclamo atómico: si ya hay una sesión (capturando o finalizando), ignorar.
+    if !audio::try_claim(&state.recording) {
         return Ok(());
     }
-    let root = app.path().app_data_dir().map_err(|e| e.to_string())?.join("models");
+    set_recording(&state.stop_req, false);
+
+    let root = match app.path().app_data_dir() {
+        Ok(d) => d.join("models"),
+        Err(e) => {
+            set_recording(&state.recording, false);
+            return Err(e.to_string());
+        }
+    };
 
     // Reutilizar el motor cacheado; construirlo la primera vez (lento solo esa vez).
     let mut engine = state.engine.lock().take();
     if engine.is_none() {
         engine = build_engine(state, &root);
-        if engine.is_none() {
-            eprintln!("[stt] no model downloaded — recording for audio level only");
-        }
+    }
+    // Sin modelo descargado: avisar y NO grabar (evita falsa sensación de éxito).
+    if engine.is_none() {
+        eprintln!("[stt] no model downloaded");
+        let _ = app.emit("no-model", "Download a speech model to start dictating.");
+        set_recording(&state.recording, false);
+        return Ok(());
     }
     if let Some(e) = engine.as_mut() {
         e.reset();
     }
 
     let (prod, mut cons) = make_ring();
-    let capture = start_capture(prod).map_err(|e| e.to_string())?;
+    let capture = match start_capture(prod) {
+        Ok(c) => c,
+        Err(e) => {
+            *state.engine.lock() = engine; // devolver el motor a la caché
+            set_recording(&state.recording, false);
+            return Err(e.to_string());
+        }
+    };
     let src_sr = capture.src_sr;
     *state.capture.lock() = Some(capture);
 
-    set_recording(&state.recording, true);
     show_pill(app);
     let _ = app.emit("state", "recording");
 
     let recording = state.recording.clone();
+    let stop_req = state.stop_req.clone();
     let app2 = app.clone();
     let state2 = state.clone();
 
@@ -180,7 +220,7 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
         let mut resampled = Vec::with_capacity(TARGET_SR);
         let mut last_interim = Instant::now();
 
-        while is_recording(&recording) {
+        while !is_recording(&stop_req) {
             let n = audio::drain_into(&mut cons, &mut scratch);
             if n == 0 {
                 std::thread::sleep(Duration::from_millis(8));
@@ -235,13 +275,16 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
             let _ = app2.emit("transcript", TranscriptEvent { text: final_text, interim: false });
         }
         let _ = app2.emit("state", "idle");
+        // Liberar la grabación como ÚLTIMO paso (impide solapar una nueva sesión durante el finalize).
+        set_recording(&recording, false);
     });
 
     Ok(())
 }
 
 fn stop_session(app: &AppHandle, state: &Arc<AppState>) {
-    set_recording(&state.recording, false);
+    // Pedir parada: el hilo verá stop_req y finalizará; libera `recording` al acabar.
+    set_recording(&state.stop_req, true);
     *state.capture.lock() = None;
     hide_pill(app);
 }
@@ -323,6 +366,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_info,
             list_models,
+            list_installed_models,
             set_inject_mode,
             download_model
         ])
@@ -342,6 +386,7 @@ pub fn run() {
             let state = Arc::new(AppState {
                 catalog,
                 recording: flag(false),
+                stop_req: flag(false),
                 capture: Mutex::new(None),
                 engine: Mutex::new(None),
                 primary_id: Mutex::new("parakeet-tdt-0.6b-v2-int8".into()),

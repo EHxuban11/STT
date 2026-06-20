@@ -4,8 +4,9 @@ import { motion } from "framer-motion";
 import { Sidebar } from "./Sidebar";
 import { WindowControls } from "./WindowControls";
 import { RecordingOverlay } from "./RecordingOverlay";
-import { on, isTauri } from "@/lib/tauri";
+import { on, isTauri, invoke } from "@/lib/tauri";
 import { useDictation } from "@/lib/dictation";
+import { showToast, setInstalled, useStore, getState } from "@/lib/store";
 
 // Permite a cada página inyectar contenido en la barra superior (acciones, tabs, etc.).
 const TopBarCtx = createContext<(n: ReactNode) => void>(() => {});
@@ -35,6 +36,24 @@ export function AppLayout() {
     };
   }, [navigate]);
 
+  // Aviso "sin modelo" emitido por el backend al intentar dictar sin modelo descargado.
+  useEffect(() => {
+    const p = on<string>("no-model", (msg) => showToast(msg));
+    return () => {
+      p.then((un) => un());
+    };
+  }, []);
+
+  // Reconciliar la lista de modelos instalados con lo que hay realmente en disco (escritorio).
+  useEffect(() => {
+    if (!isTauri) return;
+    invoke<string[]>("list_installed_models").then((ids) => ids && setInstalled(ids));
+    // Empujar el método de inserción persistido al backend.
+    invoke("set_inject_mode", { mode: getState().insertMethod });
+  }, []);
+
+  const toast = useStore((s) => s.toast);
+
   return (
     <TopBarCtx.Provider value={setBar}>
       <div className="flex h-screen overflow-hidden">
@@ -58,6 +77,15 @@ export function AppLayout() {
       </div>
       {/* En escritorio (Tauri) el indicador es la ventana flotante; en navegador, el overlay de demo. */}
       {!isTauri && <RecordingOverlay />}
+
+      {/* Aviso efímero (toast) */}
+      {toast && (
+        <div className="pointer-events-none fixed inset-x-0 top-4 z-[70] flex justify-center px-4">
+          <div className="pointer-events-auto rounded-full bg-accentbtn px-4 py-2 text-sm font-medium text-app shadow-pill">
+            {toast}
+          </div>
+        </div>
+      )}
     </TopBarCtx.Provider>
   );
 }

@@ -18,18 +18,25 @@ export const CLOUD_STT = [
   { name: "Local / Self-hosted", sub: "Custom Server" },
 ];
 
-export type LocalModel = { name: string; size: string; kind: "parakeet" | "whisper" };
+// `backendId` mapea a un modelo real del catálogo del backend (models.json). Sin él,
+// el modelo aún no es descargable (se muestra como "Coming soon").
+export type LocalModel = {
+  name: string;
+  size: string;
+  kind: "parakeet" | "whisper";
+  backendId?: string;
+};
 
 export const LOCAL_ENGLISH: LocalModel[] = [
-  { name: "Parakeet V2", size: "451 MB", kind: "parakeet" },
+  { name: "Parakeet V2", size: "451 MB", kind: "parakeet", backendId: "parakeet-tdt-0.6b-v2-int8" },
   { name: "Medium", size: "1.4 GB", kind: "whisper" },
   { name: "Small", size: "465 MB", kind: "whisper" },
-  { name: "Base", size: "141 MB", kind: "whisper" },
-  { name: "Tiny", size: "74 MB", kind: "whisper" },
+  { name: "Base", size: "141 MB", kind: "whisper", backendId: "whisper-base.en" },
+  { name: "Tiny", size: "74 MB", kind: "whisper", backendId: "whisper-tiny.en" },
 ];
 
 export const LOCAL_MULTI: LocalModel[] = [
-  { name: "Parakeet V3", size: "478 MB", kind: "parakeet" },
+  { name: "Parakeet V3", size: "478 MB", kind: "parakeet", backendId: "parakeet-tdt-0.6b-v3-int8" },
   { name: "Large v3", size: "2.9 GB", kind: "whisper" },
   { name: "Large v3 Turbo", size: "1.5 GB", kind: "whisper" },
   { name: "Medium", size: "1.4 GB", kind: "whisper" },
