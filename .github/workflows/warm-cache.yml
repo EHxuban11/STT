@@ -1,16 +1,30 @@
-name: release
+name: warm-cache
 
 on:
   push:
-    tags: ['v*']
+    branches: ['main']
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/warm-cache.yml'
+      - 'index.html'
+      - 'package-lock.json'
+      - 'package.json'
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'tsconfig*.json'
+      - 'vite.config.ts'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: warm-cache-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-windows:
-    name: Build Windows installer
+  warm-windows-release-cache:
+    name: Warm Windows release cache
     runs-on: windows-latest
 
     steps:
@@ -46,12 +60,8 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
-      - name: Build and upload Tauri release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Yawning Face STT v__VERSION__'
-          releaseDraft: false
-          prerelease: false
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Rust release binary
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml

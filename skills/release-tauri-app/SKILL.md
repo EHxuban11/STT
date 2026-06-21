@@ -12,11 +12,13 @@ Release the app by bumping the repo version, validating locally, pushing `main`,
 ## Current Release System
 
 - Workflow: `.github/workflows/release.yml`
+- Warm-cache workflow: `.github/workflows/warm-cache.yml`
 - Trigger: pushing a tag matching `v*`, or manual `workflow_dispatch`
 - Platform: Windows only (`windows-latest`)
 - Frontend runtime: Node `24`
 - Rust: stable MSVC toolchain from `dtolnay/rust-toolchain`
 - Build action: `tauri-apps/tauri-action@v0`
+- Rust cache: `swatinem/rust-cache@v2` with `shared-key: windows-release`
 - Workflow permission required: `contents: write`
 - Repository Actions setting required: default workflow permissions set to `write`
 - Output: public, non-draft, non-prerelease GitHub Release with NSIS `.exe` and MSI assets
@@ -50,6 +52,7 @@ Use SemVer-style versions such as `0.1.4`, `0.2.0`, or `1.0.0`. The matching Git
 3. Bump all project version fields together:
 
 - `package.json`
+- `package-lock.json`
 - `src-tauri/Cargo.toml`
 - `src-tauri/tauri.conf.json`
 
@@ -70,17 +73,21 @@ For a stronger preflight when time allows, run:
 npm run tauri build
 ```
 
-5. Commit the release bump:
+5. Commit and push the release bump:
 
 ```powershell
-git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
+git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
 git commit -m "Release v0.1.4"
 git push origin main
 ```
 
 Adjust the version in the commit message.
 
-6. Create and push the tag:
+6. Let `warm-cache` run before tagging when possible.
+
+The warm-cache workflow builds the release Rust binary on the default branch and saves a cache with the same `shared-key` used by the tag release. This avoids each `v*` tag becoming its own isolated cache island.
+
+7. Create and push the tag:
 
 ```powershell
 git tag v0.1.4
@@ -89,7 +96,7 @@ git push origin v0.1.4
 
 Pushing the tag starts the GitHub Actions release workflow.
 
-7. Verify the workflow and release:
+8. Verify the workflow and release:
 
 ```powershell
 gh run list --workflow release --limit 5
@@ -105,7 +112,7 @@ Confirm:
 - A `*_x64-setup.exe` asset exists.
 - A `*_x64_en-US.msi` asset exists.
 
-8. Test an authenticated download:
+9. Test an authenticated download:
 
 ```powershell
 $tag = "v0.1.4"
