@@ -266,6 +266,13 @@ export function saveDictionaryMode(mode: DictionaryMode) {
   invoke("set_dictionary_mode", { mode });
 }
 
+/** Guarda el estado de un workflow y lo sincroniza con el backend. */
+export function saveWorkflowEnabled(trigger: string, enabled: boolean) {
+  const workflows = { ...getState().workflowsEnabled, [trigger]: enabled };
+  setState({ workflowsEnabled: workflows });
+  invoke("set_workflows_enabled", { workflows });
+}
+
 let toastTimer = 0;
 /** Muestra un aviso efímero (toast) en la app. */
 export function showToast(msg: string, ms = 4500) {

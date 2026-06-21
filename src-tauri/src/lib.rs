@@ -11,6 +11,7 @@ use audio::{
 };
 use models::{Catalog, ModelKind, ResolvedModel};
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -63,6 +64,13 @@ struct MediaTranscriptResult {
     lines: Vec<MediaTranscriptLine>,
 }
 
+#[derive(Clone, serde::Serialize)]
+struct WorkflowEvent {
+    trigger: String,
+    query: String,
+    target: String,
+}
+
 struct AppState {
     catalog: Catalog,
     /// "Hay una sesión activa" (capturando o finalizando). Se reclama con try_claim.
@@ -80,6 +88,7 @@ struct AppState {
     dictionary_mode: Mutex<DictionaryMode>,
     /// Diccionario del usuario: pares (cuando oigas, escribe) aplicados a cada dictado.
     dictionary: Mutex<Vec<(String, String)>>,
+    workflows_enabled: Mutex<HashMap<String, bool>>,
 }
 
 fn provider_default() -> String {
@@ -123,6 +132,60 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({ "name": "Yawning Face STT", "version": env!("CARGO_PKG_VERSION") })
 }
 
+fn open_url(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = Command::new("rundll32.exe");
+        c.arg("url.dll,FileProtocolHandler").arg(url);
+        c
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = Command::new("open");
+        c.arg(url);
+        c
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = {
+        let mut c = Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to open URL: {e}"))
+}
+
+fn open_path(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = Command::new("explorer.exe");
+        c.arg(path);
+        c
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = Command::new("open");
+        c.arg(path);
+        c
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = {
+        let mut c = Command::new("xdg-open");
+        c.arg(path);
+        c
+    };
+
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to open path: {e}"))
+}
+
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
     let allowed = "https://github.com/EHxuban11/STT/issues/";
@@ -130,30 +193,7 @@ fn open_external_url(url: String) -> Result<(), String> {
         return Err("Unsupported external URL".into());
     }
 
-    #[cfg(target_os = "windows")]
-    let mut cmd = {
-        let mut c = Command::new("rundll32.exe");
-        c.arg("url.dll,FileProtocolHandler").arg(&url);
-        c
-    };
-
-    #[cfg(target_os = "macos")]
-    let mut cmd = {
-        let mut c = Command::new("open");
-        c.arg(&url);
-        c
-    };
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut cmd = {
-        let mut c = Command::new("xdg-open");
-        c.arg(&url);
-        c
-    };
-
-    cmd.spawn()
-        .map(|_| ())
-        .map_err(|e| format!("Failed to open URL: {e}"))
+    open_url(&url)
 }
 
 #[tauri::command]
@@ -197,6 +237,11 @@ fn set_dictionary(state: State<'_, Arc<AppState>>, entries: Vec<DictEntry>) {
         .collect();
 }
 
+#[tauri::command]
+fn set_workflows_enabled(state: State<'_, Arc<AppState>>, workflows: HashMap<String, bool>) {
+    *state.workflows_enabled.lock() = workflows;
+}
+
 fn apply_dictionary_for_mode(
     text: &str,
     dict: &[(String, String)],
@@ -208,7 +253,165 @@ fn apply_dictionary_for_mode(
     }
 }
 
-/// Inicia/para una sesión desde la UI (página Transcribir). Reutiliza el mismo motor.
+// Built-in spoken workflows: "google cats", "youtube song", "open downloads", etc.
+fn url_encode(input: &str) -> String {
+    let mut out = String::new();
+    for b in input.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+fn clean_workflow_query(input: &str) -> String {
+    input
+        .trim()
+        .trim_start_matches(|c: char| {
+            c.is_whitespace() || matches!(c, ':' | ',' | '-' | '.' | ';' | '?' | '!')
+        })
+        .trim()
+        .trim_end_matches(|c: char| matches!(c, '.' | '?' | '!' | ',' | ';' | ':'))
+        .trim()
+        .to_string()
+}
+
+fn query_for_trigger(text: &str, trigger: &str) -> Option<String> {
+    let trimmed = text.trim();
+    let lower = trimmed.to_lowercase();
+
+    if lower == trigger {
+        return Some(String::new());
+    }
+    if !lower.starts_with(trigger) {
+        return None;
+    }
+
+    let rest_lower = &lower[trigger.len()..];
+    let first = rest_lower.chars().next()?;
+    if !(first.is_whitespace() || matches!(first, ':' | ',' | '-' | '.' | ';' | '?' | '!')) {
+        return None;
+    }
+
+    Some(clean_workflow_query(&trimmed[trigger.len()..]))
+}
+
+fn workflow_enabled(enabled: &HashMap<String, bool>, trigger: &str) -> bool {
+    enabled.get(trigger).copied().unwrap_or(true)
+}
+
+fn open_folder_for_workflow(app: &AppHandle, query: &str) -> Result<String, String> {
+    let q = query.to_lowercase();
+    let path = if q.is_empty() || q.contains("home") {
+        app.path()
+            .home_dir()
+            .map_err(|e| format!("Could not locate home folder: {e}"))?
+    } else if q.contains("download") || q.contains("descarga") {
+        app.path()
+            .download_dir()
+            .map_err(|e| format!("Could not locate downloads folder: {e}"))?
+    } else if q.contains("document") || q.contains("documento") {
+        app.path()
+            .document_dir()
+            .map_err(|e| format!("Could not locate documents folder: {e}"))?
+    } else if q.contains("desktop") || q.contains("escritorio") {
+        app.path()
+            .desktop_dir()
+            .map_err(|e| format!("Could not locate desktop folder: {e}"))?
+    } else if q.contains("screenshot") || q.contains("captura") {
+        let pictures = app
+            .path()
+            .picture_dir()
+            .map_err(|e| format!("Could not locate pictures folder: {e}"))?;
+        let screenshots = pictures.join("Screenshots");
+        if screenshots.exists() {
+            screenshots
+        } else {
+            pictures
+        }
+    } else if q.contains("picture")
+        || q.contains("image")
+        || q.contains("photo")
+        || q.contains("foto")
+        || q.contains("imagen")
+    {
+        app.path()
+            .picture_dir()
+            .map_err(|e| format!("Could not locate pictures folder: {e}"))?
+    } else {
+        return Err(format!("Unknown folder workflow target: {query}"));
+    };
+
+    let target = path.display().to_string();
+    open_path(&path)?;
+    Ok(target)
+}
+
+fn run_workflow_if_enabled(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    text: &str,
+) -> Result<Option<WorkflowEvent>, String> {
+    let enabled = state.workflows_enabled.lock().clone();
+
+    let url_workflows = [
+        ("ask chat gpt", "https://chatgpt.com/", "https://chatgpt.com/?q="),
+        ("ask claude", "https://claude.ai/new", "https://claude.ai/new?q="),
+        (
+            "ask perplexity",
+            "https://www.perplexity.ai/",
+            "https://www.perplexity.ai/search?q=",
+        ),
+        ("duck duck go", "https://duckduckgo.com/", "https://duckduckgo.com/?q="),
+        (
+            "youtube",
+            "https://www.youtube.com/",
+            "https://www.youtube.com/results?search_query=",
+        ),
+        ("google", "https://www.google.com/", "https://www.google.com/search?q="),
+    ];
+
+    for (trigger, home_url, query_url) in url_workflows {
+        let Some(query) = query_for_trigger(text, trigger) else {
+            continue;
+        };
+        if !workflow_enabled(&enabled, trigger) {
+            return Ok(None);
+        }
+
+        let target = if query.is_empty() {
+            home_url.to_string()
+        } else {
+            format!("{}{}", query_url, url_encode(&query))
+        };
+        open_url(&target)?;
+        return Ok(Some(WorkflowEvent {
+            trigger: trigger.to_string(),
+            query,
+            target,
+        }));
+    }
+
+    if let Some(query) = query_for_trigger(text, "open") {
+        if !workflow_enabled(&enabled, "open") {
+            return Ok(None);
+        }
+
+        let target = open_folder_for_workflow(app, &query)?;
+        return Ok(Some(WorkflowEvent {
+            trigger: "open".to_string(),
+            query,
+            target,
+        }));
+    }
+
+    Ok(None)
+}
+
 #[tauri::command]
 fn start_recording(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<(), String> {
     start_session(&app, &state)
@@ -525,14 +728,29 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
         }
 
         if !final_text.is_empty() {
-            let mode = *state2.inject_mode.lock();
-            let result = match mode {
-                InjectMode::Paste => inject::insert_via_paste(&app2, &final_text),
-                InjectMode::Type => inject::insert_via_typing(&final_text),
-                InjectMode::Off => Ok(()), // Transcribir: no insertar, solo mostrar.
+            let workflow_handled = match run_workflow_if_enabled(&app2, &state2, &final_text) {
+                Ok(Some(event)) => {
+                    let _ = app2.emit("workflow-triggered", event);
+                    true
+                }
+                Ok(None) => false,
+                Err(e) => {
+                    eprintln!("[workflow] {e}");
+                    let _ = app2.emit("workflow-error", e);
+                    true
+                }
             };
-            if let Err(e) = result {
-                eprintln!("[inject] {e}");
+
+            if !workflow_handled {
+                let mode = *state2.inject_mode.lock();
+                let result = match mode {
+                    InjectMode::Paste => inject::insert_via_paste(&app2, &final_text),
+                    InjectMode::Type => inject::insert_via_typing(&final_text),
+                    InjectMode::Off => Ok(()), // Transcribir: no insertar, solo mostrar.
+                };
+                if let Err(e) = result {
+                    eprintln!("[inject] {e}");
+                }
             }
             let _ = app2.emit("transcript", TranscriptEvent { text: final_text, interim: false });
         }
@@ -626,6 +844,7 @@ pub fn run() {
             set_inject_mode,
             set_dictionary_mode,
             set_dictionary,
+            set_workflows_enabled,
             start_recording,
             stop_recording,
             set_active_model,
@@ -660,6 +879,7 @@ pub fn run() {
                 inject_mode: Mutex::new(InjectMode::Paste),
                 dictionary_mode: Mutex::new(DictionaryMode::Postprocess),
                 dictionary: Mutex::new(Vec::new()),
+                workflows_enabled: Mutex::new(HashMap::new()),
             });
             app.manage(state.clone());
 

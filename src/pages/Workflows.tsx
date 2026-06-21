@@ -1,36 +1,26 @@
-import { Plus } from "lucide-react";
-import { HeroCard, Kbd, CounterPill, Toggle } from "@/components/ui";
+import { HeroCard, Kbd, Toggle } from "@/components/ui";
 import { DEFAULT_WORKFLOWS } from "@/lib/data";
-import { useStore, setState } from "@/lib/store";
+import { saveWorkflowEnabled, useStore } from "@/lib/store";
 
 export default function Workflows() {
   const enabled = useStore((s) => s.workflowsEnabled);
-  const isOn = (t: string) => enabled[t] ?? true;
+  const isOn = (trigger: string) => enabled[trigger] ?? true;
 
   return (
     <div className="mx-auto max-w-4xl space-y-3 pt-2">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-ink">Workflows</h1>
-          <p className="text-sm text-muted">Trigger useful actions with short spoken phrases.</p>
-        </div>
-        <button className="btn-primary px-3.5 py-2 text-[13px]">
-          <Plus size={15} /> Create Workflow
-        </button>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-ink">Workflows</h1>
+        <p className="text-sm text-muted">Trigger useful actions with short spoken phrases.</p>
       </div>
 
       <HeroCard
         title={
-          <span className="flex items-center gap-2">
-            Hold <Kbd>Ctrl</Kbd> + <Kbd>⇧</Kbd> and say the word.
+          <span className="flex flex-wrap items-center gap-2">
+            Hold <Kbd>Ctrl</Kbd> + <Kbd>Shift</Kbd> and say the trigger phrase.
           </span>
         }
         body="Speak a trigger phrase to open apps, search the web, or talk to AI, hands-free."
       />
-
-      <div className="flex justify-end">
-        <CounterPill text="0/3 custom workflows" />
-      </div>
 
       <div className="overflow-hidden rounded-2xl border border-line">
         <div className="grid grid-cols-[1fr_1.6fr_auto] gap-4 border-b border-line px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-faint">
@@ -38,20 +28,16 @@ export default function Workflows() {
           <div>Action</div>
           <div>Enabled</div>
         </div>
-        {DEFAULT_WORKFLOWS.map((r) => (
+        {DEFAULT_WORKFLOWS.map((workflow) => (
           <div
-            key={r.trigger}
+            key={workflow.trigger}
             className="grid grid-cols-[1fr_1.6fr_auto] items-center gap-4 border-b border-line px-5 py-3.5 last:border-0"
           >
-            <div className="text-sm font-medium text-ink">{r.trigger}</div>
-            <div className="text-sm text-muted">{r.action}</div>
+            <div className="text-sm font-medium text-ink">{workflow.trigger}</div>
+            <div className="text-sm text-muted">{workflow.action}</div>
             <Toggle
-              checked={isOn(r.trigger)}
-              onChange={(v) =>
-                setState((s) => ({
-                  workflowsEnabled: { ...s.workflowsEnabled, [r.trigger]: v },
-                }))
-              }
+              checked={isOn(workflow.trigger)}
+              onChange={(enabled) => saveWorkflowEnabled(workflow.trigger, enabled)}
             />
           </div>
         ))}
