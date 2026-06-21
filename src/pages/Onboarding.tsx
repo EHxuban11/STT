@@ -49,12 +49,21 @@ export default function Onboarding() {
   const downloads = useStore((s) => s.downloads);
   const activeModelId = useStore((s) => s.activeModelId);
   const selectedModelName = useStore((s) => s.selectedModelName);
+  const recording = useStore((s) => s.recording);
+  const liveText = useStore((s) => s.liveText);
 
   const next = () => setStep((s) => Math.min(STEPS - 1, s + 1));
   const finish = () => setState({ onboarded: true });
   const activeModel = MODELS.find((m) => m.id === activeModelId);
   const activeDownload = activeModel ? downloads[activeModel.id] : undefined;
   const activeReady = !!activeModel && installed.includes(activeModel.id);
+  const testText =
+    liveText ||
+    (recording === "listening"
+      ? "Listening..."
+      : recording === "transcribing"
+        ? "Transcribing..."
+        : "");
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-app">
@@ -210,6 +219,8 @@ export default function Onboarding() {
               </div>
               <textarea
                 placeholder="Your words will appear here…"
+                value={testText}
+                readOnly
                 className="mt-4 h-28 w-full resize-none rounded-xl border border-line bg-app p-3 text-sm outline-none focus:border-brand"
               />
             </>

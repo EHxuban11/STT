@@ -2,7 +2,9 @@
 // así que la app sigue funcionando en `vite dev`.
 
 export const isTauri =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  typeof window !== "undefined" &&
+  ((globalThis as typeof globalThis & { isTauri?: boolean }).isTauri === true ||
+    "__TAURI_INTERNALS__" in window);
 
 type Unlisten = () => void;
 

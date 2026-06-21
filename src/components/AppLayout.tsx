@@ -7,7 +7,21 @@ import { WindowControls } from "./WindowControls";
 import { RecordingOverlay } from "./RecordingOverlay";
 import { on, isTauri, invoke } from "@/lib/tauri";
 import { useDictation } from "@/lib/dictation";
-import { getState, setInstalled, showToast, useStore } from "@/lib/store";
+import { getState, setInstalled, setState, showToast, useStore } from "@/lib/store";
+
+const SPEECH_MODELS: Record<string, { selectedModelId: string; selectedModelName: string }> = {
+  "parakeet-tdt-0.6b-v3-int8": { selectedModelId: "ml:Parakeet V3", selectedModelName: "Parakeet V3" },
+  "parakeet-tdt-0.6b-v2-int8": { selectedModelId: "en:Parakeet V2", selectedModelName: "Parakeet V2" },
+  "whisper-base.en": { selectedModelId: "en:Base", selectedModelName: "Base" },
+  "whisper-tiny.en": { selectedModelId: "en:Tiny", selectedModelName: "Tiny" },
+};
+
+const FALLBACK_SPEECH_MODEL_ORDER = [
+  "parakeet-tdt-0.6b-v3-int8",
+  "parakeet-tdt-0.6b-v2-int8",
+  "whisper-base.en",
+  "whisper-tiny.en",
+];
 
 export function AppLayout() {
   const navigate = useNavigate();
@@ -31,11 +45,29 @@ export function AppLayout() {
 
   useEffect(() => {
     if (!isTauri) return;
-    invoke<string[]>("list_installed_models").then((ids) => {
+    invoke<string[]>("list_installed_models").then(async (ids) => {
       if (!ids) return;
       setInstalled(ids);
-      const active = getState().activeModelId;
-      if (ids.includes(active)) invoke("set_active_model", { id: active });
+      let active = getState().activeModelId;
+      if (!ids.includes(active)) {
+        const fallback = FALLBACK_SPEECH_MODEL_ORDER.find((id) => ids.includes(id));
+        if (fallback) {
+          active = fallback;
+          setState({ activeModelId: fallback, ...SPEECH_MODELS[fallback] });
+        }
+      }
+      if (ids.includes(active)) {
+        if (!ids.includes("silero-vad")) {
+          try {
+            await invoke("download_model", { id: active });
+            const refreshed = await invoke<string[]>("list_installed_models");
+            if (refreshed) setInstalled(refreshed);
+          } catch (error) {
+            console.error("Failed to finish model setup", error);
+          }
+        }
+        invoke("set_active_model", { id: active });
+      }
     });
     invoke("set_inject_mode", { mode: getState().insertMethod });
     invoke("set_dictionary_mode", { mode: getState().dictionaryMode });

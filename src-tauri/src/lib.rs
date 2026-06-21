@@ -9,7 +9,7 @@ use audio::{
     flag, is_recording, make_ring, set_recording, start_capture, Capture, RecordingFlag,
     Resampler16k, TARGET_SR,
 };
-use models::{Catalog, ResolvedModel};
+use models::{Catalog, ModelKind, ResolvedModel};
 use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Listener, Manager, State,
+    AppHandle, Emitter, Manager, State,
 };
 
 #[derive(Clone, serde::Serialize)]
@@ -87,6 +87,34 @@ fn provider_default() -> String {
     } else {
         "cpu".into()
     }
+}
+
+fn initial_primary_id(catalog: &Catalog, root: Option<&Path>) -> String {
+    const ORDER: [&str; 4] = [
+        "parakeet-tdt-0.6b-v3-int8",
+        "parakeet-tdt-0.6b-v2-int8",
+        "whisper-base.en",
+        "whisper-tiny.en",
+    ];
+
+    if let Some(root) = root {
+        if let Some(id) = ORDER.iter().copied().find(|id| {
+            catalog
+                .get(id)
+                .and_then(|entry| models::resolve(root, entry))
+                .is_some()
+        }) {
+            return id.to_string();
+        }
+    }
+
+    ORDER[0].to_string()
+}
+
+fn has_installed_speech_model(catalog: &Catalog, root: &Path) -> bool {
+    catalog.models.iter().any(|entry| {
+        entry.kind != ModelKind::Vad && models::resolve(root, entry).is_some()
+    })
 }
 
 #[tauri::command]
@@ -185,15 +213,36 @@ async fn download_model(
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?.join("models");
     let entry = state.catalog.get(&id).ok_or("unknown model id")?.clone();
     let app2 = app.clone();
+    let progress_id = id.clone();
     models::ensure_downloaded(&root, &entry, move |done, total| {
         let _ = app2.emit(
             "model-progress",
-            serde_json::json!({ "id": id, "done": done, "total": total }),
+            serde_json::json!({ "id": progress_id, "done": done, "total": total }),
         );
     })
     .await
-    .map(|_| ())
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    let vad_id = state.vad_id.lock().clone();
+    if id != vad_id {
+        let vad_entry = state
+            .catalog
+            .get(&vad_id)
+            .ok_or("unknown vad model id")?
+            .clone();
+        let app3 = app.clone();
+        let vad_progress_id = vad_id.clone();
+        models::ensure_downloaded(&root, &vad_entry, move |done, total| {
+            let _ = app3.emit(
+                "model-progress",
+                serde_json::json!({ "id": vad_progress_id, "done": done, "total": total }),
+            );
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -529,9 +578,11 @@ pub fn run() {
             let catalog = Catalog::load(catalog_path.as_deref()).expect("load catalog");
 
             // Log de la carpeta de modelos (para colocar los .onnx en la ruta correcta).
-            if let Ok(dir) = app.path().app_data_dir() {
-                eprintln!("[models] dir = {}", dir.join("models").display());
+            let models_root = app.path().app_data_dir().ok().map(|dir| dir.join("models"));
+            if let Some(root) = models_root.as_ref() {
+                eprintln!("[models] dir = {}", root.display());
             }
+            let primary_id = initial_primary_id(&catalog, models_root.as_deref());
 
             let state = Arc::new(AppState {
                 catalog,
@@ -539,7 +590,7 @@ pub fn run() {
                 stop_req: flag(false),
                 capture: Mutex::new(None),
                 engine: Mutex::new(None),
-                primary_id: Mutex::new("parakeet-tdt-0.6b-v3-int8".into()),
+                primary_id: Mutex::new(primary_id),
                 fallback_id: Mutex::new(None),
                 vad_id: Mutex::new("silero-vad".into()),
                 provider: Mutex::new(provider_default()),
@@ -548,6 +599,44 @@ pub fn run() {
                 dictionary: Mutex::new(Vec::new()),
             });
             app.manage(state.clone());
+
+            if let Some(root) = models_root.clone() {
+                let state_vad = state.clone();
+                let app_vad = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if !has_installed_speech_model(&state_vad.catalog, &root) {
+                        return;
+                    }
+                    let vad_id = state_vad.vad_id.lock().clone();
+                    let Some(vad_entry) = state_vad.catalog.get(&vad_id).cloned() else {
+                        return;
+                    };
+                    if models::resolve(&root, &vad_entry).is_some() {
+                        return;
+                    }
+                    let progress_id = vad_id.clone();
+                    let app_progress = app_vad.clone();
+                    match models::ensure_downloaded(&root, &vad_entry, move |done, total| {
+                        let _ = app_progress.emit(
+                            "model-progress",
+                            serde_json::json!({ "id": progress_id, "done": done, "total": total }),
+                        );
+                    })
+                    .await
+                    {
+                        Ok(_) => {
+                            eprintln!("[models] vad installed");
+                            if state_vad.engine.lock().is_none() {
+                                if let Some(e) = build_engine(&state_vad, &root) {
+                                    *state_vad.engine.lock() = Some(e);
+                                    eprintln!("[stt] engine pre-warmed after vad install");
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("[models] vad install failed: {e}"),
+                    }
+                });
+            }
 
             // Pre-cargar el motor en segundo plano (si el modelo ya está descargado),
             // para que la PRIMERA pulsación del atajo también sea instantánea.
@@ -599,21 +688,26 @@ pub fn run() {
             }
 
             // Hotkey de bajo nivel: mantener Ctrl+Shift inicia dictado; soltarlo lo para.
-            hotkey::spawn_ptt_listener(app.handle().clone());
-
-            // Un único oyente de "ptt" controla las sesiones (vale para ambos caminos).
             let app_handle = app.handle().clone();
-            let state_for_listener = state.clone();
-            app.listen("ptt", move |event| {
-                let payload = event.payload().trim_matches('"');
-                match payload {
-                    "start" => {
-                        if let Err(e) = start_session(&app_handle, &state_for_listener) {
-                            eprintln!("start: {e}");
+            let state_for_hotkey = state.clone();
+            let (ptt_tx, ptt_rx) = crossbeam_channel::unbounded();
+            hotkey::spawn_ptt_listener(move |event| {
+                let _ = ptt_tx.send(event);
+            });
+            std::thread::spawn(move || {
+                for event in ptt_rx {
+                    match event {
+                        hotkey::PttEvent::Start => {
+                            eprintln!("[hotkey] start");
+                            if let Err(e) = start_session(&app_handle, &state_for_hotkey) {
+                                eprintln!("start: {e}");
+                            }
+                        }
+                        hotkey::PttEvent::Stop => {
+                            eprintln!("[hotkey] stop");
+                            stop_session(&app_handle, &state_for_hotkey);
                         }
                     }
-                    "stop" => stop_session(&app_handle, &state_for_listener),
-                    _ => {}
                 }
             });
             Ok(())

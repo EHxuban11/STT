@@ -1,5 +1,5 @@
 import { isTauri, on, invoke } from "./tauri";
-import { getState, setState, markInstalled, clearDownload } from "./store";
+import { getState, setState, markInstalled, clearDownload, setInstalled } from "./store";
 
 /** Lanza la descarga de un modelo: real en Tauri (download_model + model-progress),
  *  simulada en el navegador. Actualiza el store (downloads / installed). */
@@ -15,7 +15,9 @@ export async function downloadModel(id: string, totalBytes: number) {
     });
     try {
       await invoke("download_model", { id });
-      markInstalled(id);
+      const ids = await invoke<string[]>("list_installed_models");
+      if (ids) setInstalled(ids);
+      else markInstalled(id);
     } catch (e) {
       console.error("download_model failed", e);
     } finally {
