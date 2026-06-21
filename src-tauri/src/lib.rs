@@ -222,20 +222,28 @@ fn stop_recording(app: AppHandle, state: State<'_, Arc<AppState>>) {
 /// Cambia el modelo de voz activo: actualiza el id primario, invalida el motor cacheado
 /// y lo re-calienta en segundo plano con el nuevo modelo.
 #[tauri::command]
-fn set_active_model(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) {
-    *state.primary_id.lock() = id;
+fn set_active_model(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> Result<(), String> {
+    if state.catalog.get(&id).is_none() {
+        return Err(format!("unknown model id: {id}"));
+    }
+
+    *state.primary_id.lock() = id.clone();
     *state.engine.lock() = None; // invalidar caché (el actual es del modelo anterior)
 
     let state2: Arc<AppState> = (*state).clone();
     let app2 = app.clone();
+    let target_id = id.clone();
     std::thread::spawn(move || {
         if let Ok(root) = app2.path().app_data_dir().map(|d| d.join("models")) {
-            if let Some(e) = build_engine(&state2, &root) {
-                *state2.engine.lock() = Some(e);
+            if let Some(e) = build_engine_for_primary(&state2, &root, &target_id) {
+                if *state2.primary_id.lock() == target_id {
+                    *state2.engine.lock() = Some(e);
+                }
                 eprintln!("[stt] engine re-warmed for new active model");
             }
         }
     });
+    Ok(())
 }
 
 #[tauri::command]
@@ -381,10 +389,15 @@ fn rms(samples: &[f32]) -> f32 {
 /// Construye el motor STT (recognizer + VAD) si los modelos están descargados.
 /// Es lento (carga los ONNX en memoria) — por eso lo cacheamos y reutilizamos.
 fn build_engine(state: &Arc<AppState>, root: &Path) -> Option<stt::Engine> {
+    let primary_id = state.primary_id.lock().clone();
+    build_engine_for_primary(state, root, &primary_id)
+}
+
+fn build_engine_for_primary(state: &Arc<AppState>, root: &Path, primary_id: &str) -> Option<stt::Engine> {
     let resolve_id =
         |id: &str| -> Option<ResolvedModel> { state.catalog.get(id).and_then(|e| models::resolve(root, e)) };
     let provider = state.provider.lock().clone();
-    let primary = resolve_id(&state.primary_id.lock())?;
+    let primary = resolve_id(primary_id)?;
     let vad_model = match resolve_id(&state.vad_id.lock())? {
         ResolvedModel::Vad { model } => model,
         _ => return None,
