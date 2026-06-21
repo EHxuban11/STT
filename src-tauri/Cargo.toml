@@ -1,6 +1,6 @@
 [package]
 name = "vowen-clone"
-version = "0.1.5"
+version = "0.1.6"
 description = "Yawning Face STT — voice-first dictation for the desktop"
 authors = ["you"]
 edition = "2021"
@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 # --- Tauri core + plugins ---
 tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
 tauri-plugin-clipboard-manager = "2"        # portapapeles para inyección por pegado
 
 # --- Motor de inferencia (crate oficial k2-fsa; enlace estático, libs auto-descargadas) ---

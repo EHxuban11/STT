@@ -554,8 +554,19 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main(app);
+        }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .on_window_event(|window, event| {
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_app_info,
             list_models,
@@ -698,13 +709,11 @@ pub fn run() {
                 for event in ptt_rx {
                     match event {
                         hotkey::PttEvent::Start => {
-                            eprintln!("[hotkey] start");
                             if let Err(e) = start_session(&app_handle, &state_for_hotkey) {
                                 eprintln!("start: {e}");
                             }
                         }
                         hotkey::PttEvent::Stop => {
-                            eprintln!("[hotkey] stop");
                             stop_session(&app_handle, &state_for_hotkey);
                         }
                     }

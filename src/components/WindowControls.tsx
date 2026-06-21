@@ -1,10 +1,9 @@
 import { Moon, Sun, Minus, Square, X } from "lucide-react";
 import { useTheme } from "@/lib/theme";
-
-const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+import { isTauri } from "@/lib/tauri";
 
 async function win(action: "minimize" | "maximize" | "close") {
-  if (!inTauri) return;
+  if (!isTauri) return;
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   const w = getCurrentWindow();
   if (action === "minimize") await w.minimize();
