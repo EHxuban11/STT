@@ -79,11 +79,120 @@ const KEY = "vowen.state";
 // Campos que NO se persisten en localStorage.
 const EPHEMERAL: (keyof AppState)[] = ["recording", "liveText", "downloads", "toast"];
 
+const RECORDING_POS: RecordingPos[] = ["top", "bottom", "off"];
+const DICTIONARY_MODES: DictionaryMode[] = ["off", "postprocess"];
+const INSERT_METHODS: AppState["insertMethod"][] = ["paste", "type"];
+const RECORDING_STATES: NonNullable<AppState["recording"]>[] = [
+  "idle",
+  "listening",
+  "transcribing",
+  "done",
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringOr(value: unknown, fallback: string) {
+  return typeof value === "string" ? value : fallback;
+}
+
+function boolOr(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function enumOr<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === "string" && allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function workflowMap(value: unknown): Record<string, boolean> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean")
+  );
+}
+
+function dictEntries(value: unknown): DictEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((entry) => ({
+      from: stringOr(entry.from, "").trim(),
+      to: stringOr(entry.to, "").trim(),
+    }))
+    .filter((entry) => entry.from && entry.to)
+    .slice(0, 500);
+}
+
+function transcriptionEntries(value: unknown): Transcription[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((entry) => {
+      const text = stringOr(entry.text, "").trim();
+      const at = typeof entry.at === "number" && Number.isFinite(entry.at) ? entry.at : Date.now();
+      const words =
+        typeof entry.words === "number" && Number.isFinite(entry.words)
+          ? entry.words
+          : text
+            ? text.split(/\s+/).length
+            : 0;
+      return {
+        id: stringOr(entry.id, `${at}-${Math.floor(Math.random() * 1e6)}`),
+        text,
+        at,
+        words,
+      };
+    })
+    .filter((entry) => entry.text)
+    .slice(0, 200);
+}
+
+function normalizeState(value: unknown): AppState {
+  if (!isRecord(value)) return { ...DEFAULT };
+  const general = isRecord(value.general) ? value.general : {};
+  const loaded: AppState = {
+    ...DEFAULT,
+    selectedModelId: stringOr(value.selectedModelId, DEFAULT.selectedModelId),
+    selectedModelName: stringOr(value.selectedModelName, DEFAULT.selectedModelName),
+    recordingPos: enumOr(value.recordingPos, RECORDING_POS, DEFAULT.recordingPos),
+    general: {
+      openAtLogin: boolOr(general.openAtLogin, DEFAULT.general.openAtLogin),
+      startMinimized: boolOr(general.startMinimized, DEFAULT.general.startMinimized),
+      autopaste: boolOr(general.autopaste, DEFAULT.general.autopaste),
+      autoEnter: boolOr(general.autoEnter, DEFAULT.general.autoEnter),
+      restoreClipboard: boolOr(general.restoreClipboard, DEFAULT.general.restoreClipboard),
+      soundEffects: boolOr(general.soundEffects, DEFAULT.general.soundEffects),
+      saveHistory: boolOr(general.saveHistory, DEFAULT.general.saveHistory),
+      removeFillers: boolOr(general.removeFillers, DEFAULT.general.removeFillers),
+    },
+    workflowsEnabled: workflowMap(value.workflowsEnabled),
+    dictionary: dictEntries(value.dictionary),
+    dictionaryMode: enumOr(value.dictionaryMode, DICTIONARY_MODES, DEFAULT.dictionaryMode),
+    transcriptions: transcriptionEntries(value.transcriptions),
+    installed: stringArray(value.installed),
+    activeModelId: stringOr(value.activeModelId, DEFAULT.activeModelId),
+    insertMethod: enumOr(value.insertMethod, INSERT_METHODS, DEFAULT.insertMethod),
+    onboarded: boolOr(value.onboarded, DEFAULT.onboarded),
+    downloads: {},
+    recording: enumOr(value.recording, RECORDING_STATES, DEFAULT.recording ?? "idle"),
+    liveText: stringOr(value.liveText, DEFAULT.liveText),
+    toast: null,
+  };
+
+  if (!value.recording) loaded.recording = null;
+  return loaded;
+}
+
 function load(): AppState {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
-      const loaded = { ...DEFAULT, ...JSON.parse(raw) };
+      const loaded = normalizeState(JSON.parse(raw));
       const oldDefaultModel =
         loaded.selectedModelId === "en:Parakeet V2" &&
         loaded.selectedModelName === "Parakeet V2" &&

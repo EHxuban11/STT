@@ -384,6 +384,8 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
         }
     };
 
+    let session_model_id = state.primary_id.lock().clone();
+
     // Reutilizar el motor cacheado; construirlo la primera vez (lento solo esa vez).
     let mut engine = state.engine.lock().take();
     if engine.is_none() {
@@ -471,7 +473,9 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
         hide_pill(&app2);
 
         // Devolver el motor a la caché (sin recargar el modelo la próxima vez).
-        *state2.engine.lock() = engine;
+        if *state2.primary_id.lock() == session_model_id {
+            *state2.engine.lock() = engine;
+        }
 
         if !final_text.is_empty() {
             let mode = *state2.inject_mode.lock();

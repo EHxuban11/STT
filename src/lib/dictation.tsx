@@ -48,9 +48,13 @@ export function useDictation() {
     // Estado de grabación emitido por el backend Rust.
     subs.push(
       on<string>("state", (phase) => {
-        if (phase === "recording") setState({ recording: "listening", liveText: "" });
-        else if (phase === "idle")
+        if (phase === "recording") {
+          clearTimers();
+          setState({ recording: "listening", liveText: "" });
+        } else if (phase === "idle") {
+          clearTimers();
           timers.push(window.setTimeout(() => setState({ recording: null }), 1400));
+        }
       })
     );
 

@@ -174,6 +174,7 @@ export function ProviderRow({
   right,
   selected,
   onClick,
+  disabled,
 }: {
   logo: ReactNode;
   name: string;
@@ -181,15 +182,20 @@ export function ProviderRow({
   right?: ReactNode;
   selected?: boolean;
   onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       className={clsx(
         "flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
+        disabled && "cursor-default opacity-65",
         selected
           ? "border-transparent bg-accentbtn text-app"
-          : "border-line bg-app hover:bg-card"
+          : disabled
+            ? "border-line bg-app"
+            : "border-line bg-app hover:bg-card"
       )}
     >
       <div

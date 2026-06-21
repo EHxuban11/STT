@@ -2,7 +2,7 @@ import { Cloud, Cpu, Download, Globe, Languages, Loader2, MonitorCog } from "luc
 import { ProviderRow, SectionLabel, SetupBadge } from "@/components/ui";
 import { CLOUD_STT, LOCAL_ENGLISH, LOCAL_MULTI, LocalModel } from "@/lib/data";
 import { downloadModel } from "@/lib/models";
-import { setState, useStore } from "@/lib/store";
+import { getState, setState, useStore } from "@/lib/store";
 import { invoke } from "@/lib/tauri";
 
 function parseSize(s: string): number {
@@ -77,15 +77,22 @@ export default function SpeechModels() {
       const backendId = m.backendId;
       const dl = backendId ? downloads[backendId] : undefined;
       const isInstalled = !!backendId && installed.includes(backendId);
+      const isAvailable = !!backendId;
 
-      const onClick = () => {
+      const selectModel = () => {
+        if (!backendId) return;
+        setState({ selectedModelId: id, selectedModelName: m.name, activeModelId: backendId });
+        invoke("set_active_model", { id: backendId });
+      };
+
+      const onClick = async () => {
         if (dl) return;
         if (!backendId) return;
         if (isInstalled) {
-          setState({ selectedModelId: id, selectedModelName: m.name, activeModelId: backendId });
-          invoke("set_active_model", { id: backendId });
+          selectModel();
         } else {
-          downloadModel(backendId, parseSize(m.size));
+          await downloadModel(backendId, parseSize(m.size));
+          if (getState().installed.includes(backendId)) selectModel();
         }
       };
 
@@ -93,6 +100,8 @@ export default function SpeechModels() {
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
           <Loader2 size={14} className="animate-spin" /> {pct(dl)}%
         </span>
+      ) : !isAvailable ? (
+        <span className="text-xs font-semibold text-faint">Coming soon</span>
       ) : isInstalled ? undefined : (
         <Download size={16} className="text-faint" />
       );
@@ -102,10 +111,11 @@ export default function SpeechModels() {
           key={id}
           logo={<ModelTile kind={m.kind} />}
           name={m.name}
-          sub={dl ? `Downloading... ${pct(dl)}%` : m.size}
+          sub={dl ? `Downloading... ${pct(dl)}%` : isAvailable ? m.size : `${m.size} - Coming soon`}
           selected={selected === id}
           onClick={onClick}
           right={right}
+          disabled={!isAvailable || !!dl}
         />
       );
     });
@@ -141,7 +151,8 @@ export default function SpeechModels() {
         }
         name="NVIDIA CUDA"
         sub="RTX 2000+ - ~631 MB - No CUDA install needed"
-        right={<Download size={16} className="text-faint" />}
+        right={<span className="text-xs font-semibold text-faint">Coming soon</span>}
+        disabled
       />
 
       <SectionLabel>

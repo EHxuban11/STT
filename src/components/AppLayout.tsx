@@ -5,6 +5,7 @@ import { ChevronRight, Headphones } from "lucide-react";
 import { Sidebar } from "./Sidebar";
 import { WindowControls } from "./WindowControls";
 import { RecordingOverlay } from "./RecordingOverlay";
+import { FeedbackButton } from "./FeedbackButton";
 import { on, isTauri, invoke } from "@/lib/tauri";
 import { useDictation } from "@/lib/dictation";
 import { getState, setInstalled, setState, showToast, useStore } from "@/lib/store";
@@ -44,6 +45,31 @@ export function AppLayout() {
   }, []);
 
   useEffect(() => {
+    const p = on<string>("tray-action", async (action) => {
+      if (action !== "copy_last") return;
+      const text = getState().transcriptions[0]?.text || getState().liveText;
+      if (!text.trim()) {
+        showToast("No transcription to copy");
+        return;
+      }
+      try {
+        if (isTauri) {
+          const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+          await writeText(text);
+        } else {
+          await navigator.clipboard?.writeText(text);
+        }
+        showToast("Copied last transcription");
+      } catch {
+        showToast("Could not copy transcription");
+      }
+    });
+    return () => {
+      p.then((un) => un());
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isTauri) return;
     invoke<string[]>("list_installed_models").then(async (ids) => {
       if (!ids) return;
@@ -57,15 +83,6 @@ export function AppLayout() {
         }
       }
       if (ids.includes(active)) {
-        if (!ids.includes("silero-vad")) {
-          try {
-            await invoke("download_model", { id: active });
-            const refreshed = await invoke<string[]>("list_installed_models");
-            if (refreshed) setInstalled(refreshed);
-          } catch (error) {
-            console.error("Failed to finish model setup", error);
-          }
-        }
         invoke("set_active_model", { id: active });
       }
     });
@@ -113,6 +130,7 @@ export function AppLayout() {
       </div>
 
       {!isTauri && <RecordingOverlay />}
+      <FeedbackButton />
 
       {toast && (
         <div className="pointer-events-none fixed inset-x-0 top-4 z-[70] flex justify-center px-4">
