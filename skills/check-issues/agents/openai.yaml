@@ -1,0 +1,4 @@
+interface:
+  display_name: "Check Issues"
+  short_description: "Triage the in-app feedback issues and close resolved or noisy ones."
+  default_prompt: "Check open Yawning Face STT feedback issues, decide what is real, implement fixes when appropriate, and close addressed or noise issues with comments."
