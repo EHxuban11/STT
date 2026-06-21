@@ -12,6 +12,7 @@ use audio::{
 use models::{Catalog, ModelKind, ResolvedModel};
 use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{
@@ -120,6 +121,39 @@ fn has_installed_speech_model(catalog: &Catalog, root: &Path) -> bool {
 #[tauri::command]
 fn get_app_info() -> serde_json::Value {
     serde_json::json!({ "name": "Yawning Face STT", "version": env!("CARGO_PKG_VERSION") })
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let allowed = "https://github.com/EHxuban11/STT/issues/";
+    if !url.starts_with(allowed) || url.chars().any(char::is_whitespace) {
+        return Err("Unsupported external URL".into());
+    }
+
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = Command::new("rundll32.exe");
+        c.arg("url.dll,FileProtocolHandler").arg(&url);
+        c
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = Command::new("open");
+        c.arg(&url);
+        c
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = {
+        let mut c = Command::new("xdg-open");
+        c.arg(&url);
+        c
+    };
+
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to open URL: {e}"))
 }
 
 #[tauri::command]
@@ -573,6 +607,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_app_info,
+            open_external_url,
             list_models,
             list_installed_models,
             set_inject_mode,

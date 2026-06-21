@@ -74,6 +74,18 @@ export function FeedbackButton() {
     }
   }, [appInfo?.name, appInfo?.version, message]);
 
+  const openIssue = useCallback(async (url: string) => {
+    if (isTauri) {
+      try {
+        await invoke("open_external_url", { url });
+        return;
+      } catch {
+        /* fall back to the browser path below */
+      }
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
+
   return (
     <div className="no-drag fixed bottom-5 right-5 z-[65]">
       {open && (
@@ -109,14 +121,13 @@ export function FeedbackButton() {
           </button>
 
           {status.kind === "ok" && (
-            <a
-              href={status.url}
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
+              onClick={() => openIssue(status.url)}
               className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-600 hover:underline"
             >
               Issue #{status.number ?? ""} created <ExternalLink size={12} />
-            </a>
+            </button>
           )}
           {status.kind === "err" && (
             <div className="mt-2 text-xs font-medium leading-5 text-red-500">{status.msg}</div>
@@ -134,4 +145,3 @@ export function FeedbackButton() {
     </div>
   );
 }
-
