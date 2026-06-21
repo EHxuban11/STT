@@ -1,6 +1,6 @@
 ---
 name: build-tauri-locally
-description: Build this repo's Windows Tauri desktop installer locally on the user's PC. Use when the user asks to build, package, locate, time, troubleshoot, or verify local Windows release artifacts for Yawning Face STT, including exact dependencies such as Rust MSVC, Visual Studio C++ Build Tools, CMake, Node/npm, WiX/NSIS, output installer paths, and when to prefer local builds over GitHub Actions.
+description: Build, launch, and troubleshoot this repo's Windows Tauri desktop app locally on the user's PC. Use when the user asks to build, package, locate, time, troubleshoot, or verify local Windows release artifacts for Yawning Face STT, or when the app shows localhost refused / white screen because a raw debug Tauri exe was launched without Vite. Covers exact dependencies such as Rust MSVC, Visual Studio C++ Build Tools, CMake, Node/npm, WiX/NSIS, output installer paths, dev-server launch, and when to prefer local builds over GitHub Actions.
 ---
 
 # Build Tauri Locally
@@ -125,6 +125,73 @@ Set-Location src-tauri
 cargo check
 Set-Location ..
 ```
+
+## Local Launch Modes
+
+Do not confuse the raw debug exe with a bundled production app.
+
+Raw debug executable:
+
+```text
+src-tauri\target\debug\vowen-clone.exe
+```
+
+This exe expects the Tauri dev URL to be alive:
+
+```text
+http://localhost:1420
+```
+
+If you launch the raw debug exe without Vite running, the app window shows a browser-style error such as:
+
+```text
+localhost refused the connection
+ERR_CONNECTION_REFUSED
+```
+
+That is not a frontend build failure. It means the debug WebView has no dev server to load.
+
+For quick interactive testing of the debug exe:
+
+```powershell
+$repo = "C:\Users\Usuario\Documents\GitHub\STT"
+$node = Join-Path $repo "_vowen_analysis\tools\node-v24.17.0-win-x64"
+$env:Path = "$node;$env:Path"
+Set-Location $repo
+Start-Process powershell.exe -ArgumentList @(
+  "-NoProfile",
+  "-ExecutionPolicy", "Bypass",
+  "-Command",
+  "Set-Location '$repo'; `$env:Path='$node;' + `$env:Path; npm run dev -- --host 127.0.0.1 --port 1420"
+) -WindowStyle Hidden
+
+for ($i = 0; $i -lt 40; $i++) {
+  Start-Sleep -Milliseconds 250
+  if (Get-NetTCPConnection -LocalPort 1420 -ErrorAction SilentlyContinue) { break }
+}
+
+Get-Process -Name vowen-clone -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Process "$repo\src-tauri\target\debug\vowen-clone.exe" -WorkingDirectory "$repo\src-tauri\target\debug"
+```
+
+For non-localhost testing, use a bundled/release build instead:
+
+```powershell
+npm run tauri build
+Start-Process ".\src-tauri\target\release\vowen-clone.exe"
+```
+
+Or install/run the generated setup exe:
+
+```text
+src-tauri\target\release\bundle\nsis\Yawning Face STT_<version>_x64-setup.exe
+```
+
+Rule of thumb:
+
+- `npm run tauri dev` or raw debug exe = needs Vite/localhost.
+- `npm run tauri build` release exe or installer = no localhost.
+- If the user says "localhost refused" after an agent launched the app, first start Vite on `1420` or relaunch a bundled release build. Do not keep relaunching `target\debug\vowen-clone.exe` by itself.
 
 ## Output Artifacts
 
