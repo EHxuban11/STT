@@ -18,8 +18,8 @@ import {
   X,
 } from "lucide-react";
 import { CounterPill, HeroCard, IconBadge } from "@/components/ui";
-import { invoke, isTauri } from "@/lib/tauri";
-import { useStore } from "@/lib/store";
+import { copyText, invoke, isTauri } from "@/lib/tauri";
+import { showToast, useStore } from "@/lib/store";
 
 type JobStatus = "transcribing" | "done" | "error";
 
@@ -542,7 +542,11 @@ function TranscriptDetail({
                 <Download size={14} /> Export
               </button>
               <button
-                onClick={() => navigator.clipboard?.writeText(transcriptText(job))}
+                onClick={async () => {
+                  const ok = await copyText(transcriptText(job));
+                  showToast(ok ? "Copied transcript" : "Could not copy");
+                  setMenuOpen(false);
+                }}
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-ink hover:bg-card"
               >
                 <Copy size={14} /> Copy

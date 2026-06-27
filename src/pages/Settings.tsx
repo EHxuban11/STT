@@ -13,6 +13,23 @@ import { SETTINGS_SECTIONS, SettingsSection, SHORTCUTS } from "@/lib/data";
 import { useStore, setState, saveDictionaryMode } from "@/lib/store";
 import type { DictionaryMode } from "@/lib/store";
 import { invoke } from "@/lib/tauri";
+import { useTheme, type ThemeChoice } from "@/lib/theme";
+
+// Selector de apariencia: Light / Dark / System (System sigue al sistema operativo).
+function ThemeSelect() {
+  const { choice, setChoice } = useTheme();
+  return (
+    <SegmentedTabs<ThemeChoice>
+      tabs={[
+        { id: "light", label: "Light" },
+        { id: "dark", label: "Dark" },
+        { id: "system", label: "System" },
+      ]}
+      value={choice}
+      onChange={setChoice}
+    />
+  );
+}
 
 // Selector real del método de inserción, cableado al backend (set_inject_mode).
 function InsertMethodSelect() {
@@ -149,6 +166,11 @@ function GeneralSection() {
     setState((s) => ({ general: { ...s.general, [k]: v } }));
   return (
     <Card>
+      <SettingRow
+        label="Appearance"
+        help="Light, Dark, or System (follows your operating system)."
+        control={<ThemeSelect />}
+      />
       <SettingRow
         label="Software Updates"
         help="Check for the latest version of Yawning Face"

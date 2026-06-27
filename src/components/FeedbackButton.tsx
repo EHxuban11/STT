@@ -107,6 +107,12 @@ export function FeedbackButton() {
               setMessage(event.target.value);
               if (status.kind !== "sending") setStatus({ kind: "idle" });
             }}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                event.preventDefault();
+                if (status.kind !== "sending") submit();
+              }
+            }}
             placeholder="Bug, idea, or rough note..."
             className="h-28 w-full resize-none rounded-lg border border-line bg-card p-2.5 text-sm text-ink outline-none placeholder:text-faint focus:border-brand"
           />
@@ -118,6 +124,9 @@ export function FeedbackButton() {
           >
             <Send size={14} />
             {status.kind === "sending" ? "Sending..." : "Send"}
+            {status.kind !== "sending" && (
+              <span className="ml-1 text-xs font-normal opacity-70">Ctrl + Enter</span>
+            )}
           </button>
 
           {status.kind === "ok" && (

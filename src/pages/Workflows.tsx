@@ -1,6 +1,7 @@
 import { HeroCard, Kbd, Toggle } from "@/components/ui";
 import { DEFAULT_WORKFLOWS } from "@/lib/data";
 import { saveWorkflowEnabled, useStore } from "@/lib/store";
+import { PTT_KEYS } from "@/lib/hotkey";
 
 export default function Workflows() {
   const enabled = useStore((s) => s.workflowsEnabled);
@@ -16,7 +17,7 @@ export default function Workflows() {
       <HeroCard
         title={
           <span className="flex flex-wrap items-center gap-2">
-            Hold <Kbd>Ctrl</Kbd> + <Kbd>Shift</Kbd> and say the trigger phrase.
+            Hold <Kbd>{PTT_KEYS[0]}</Kbd> + <Kbd>{PTT_KEYS[1]}</Kbd> and say the trigger phrase.
           </span>
         }
         body="Speak a trigger phrase to open apps, search the web, or talk to AI, hands-free."

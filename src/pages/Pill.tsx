@@ -8,6 +8,7 @@ const NB = 15;
 
 export default function Pill() {
   const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const levelRef = useRef(0);
   const barsRef = useRef<(HTMLSpanElement | null)[]>([]);
   const rafRef = useRef(0);
@@ -62,11 +63,20 @@ export default function Pill() {
     subs.push(
       on<string>("state", (s) => {
         if (s === "recording") {
+          setMessage(null);
           setBusy(false);
           startLoop();
         } else if (s === "idle") {
           window.setTimeout(stopLoop, 300);
         }
+      })
+    );
+    // Mensaje breve del backend (p. ej. "No microphone detected").
+    subs.push(
+      on<string>("pill-message", (msg) => {
+        setBusy(false);
+        stopLoop();
+        setMessage(msg);
       })
     );
     // Mientras finaliza el STT mostramos un spinner breve en lugar del punto rojo.
@@ -81,6 +91,17 @@ export default function Pill() {
       stopLoop();
     };
   }, []);
+
+  if (message) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-transparent">
+        <div className="flex items-center gap-2.5 rounded-full bg-zinc-900/95 px-4 py-2.5 shadow-2xl ring-1 ring-white/10 backdrop-blur">
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
+          <span className="text-[13px] font-medium text-white/90">{message}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-transparent">

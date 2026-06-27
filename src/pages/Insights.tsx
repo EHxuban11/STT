@@ -3,6 +3,7 @@ import { BookText, Flame, Headphones, Sparkles } from "lucide-react";
 import { EmptyState } from "@/components/ui";
 import { useStore } from "@/lib/store";
 import { computeInsights, type DayCell } from "@/lib/insights";
+import { PTT_LABEL } from "@/lib/hotkey";
 
 const nf = (n: number) => n.toLocaleString();
 
@@ -144,7 +145,7 @@ export default function Insights() {
         <EmptyState
           icon={<Sparkles size={40} strokeWidth={1.5} />}
           title="Nothing to show yet"
-          subtitle="Hold Ctrl + Shift and start dictating to build your local profile."
+          subtitle={`Hold ${PTT_LABEL} and start dictating to build your local profile.`}
         />
       </div>
     );
