@@ -1,7 +1,10 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { BarChart3, Clock, Copy, Mic } from "lucide-react";
+import { BarChart3, Check, Clock, Copy, Mic } from "lucide-react";
 import { EmptyState, HeroCard, IconBadge, Kbd } from "@/components/ui";
-import { useStore, type Transcription } from "@/lib/store";
+import { showToast, useStore, type Transcription } from "@/lib/store";
+import { copyText } from "@/lib/tauri";
+import { PTT_KEYS } from "@/lib/hotkey";
 
 function dateGroupLabel(ts: number) {
   const d = new Date(ts);
@@ -34,6 +37,33 @@ function groupByDate(txs: Transcription[]) {
   return groups;
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function onCopy() {
+    const ok = await copyText(text);
+    if (ok) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } else {
+      showToast("Could not copy");
+    }
+  }
+
+  return (
+    <button
+      onClick={onCopy}
+      className={
+        "btn-ghost shrink-0 transition-opacity " +
+        (copied ? "opacity-100 text-emerald-600" : "opacity-0 group-hover:opacity-100")
+      }
+      title={copied ? "Copied" : "Copy"}
+    >
+      {copied ? <Check size={15} /> : <Copy size={15} />}
+    </button>
+  );
+}
+
 export default function Home() {
   const txs = useStore((s) => s.transcriptions);
 
@@ -57,7 +87,7 @@ export default function Home() {
         <HeroCard
           title={
             <span className="flex flex-wrap items-center gap-2">
-              Hold <Kbd>Ctrl</Kbd> + <Kbd>Shift</Kbd> to dictate anywhere.
+              Hold <Kbd>{PTT_KEYS[0]}</Kbd> + <Kbd>{PTT_KEYS[1]}</Kbd> to dictate anywhere.
             </span>
           }
           body="Your words get pasted into whatever app you're in, transcribed on-device."
@@ -90,13 +120,7 @@ export default function Home() {
                     >
                       <div className="w-16 shrink-0 pt-0.5 text-xs text-faint">{timeLabel(t.at)}</div>
                       <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm text-ink">{t.text}</p>
-                      <button
-                        onClick={() => navigator.clipboard?.writeText(t.text)}
-                        className="btn-ghost shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                        title="Copy"
-                      >
-                        <Copy size={15} />
-                      </button>
+                      <CopyButton text={t.text} />
                     </div>
                   ))}
                 </div>

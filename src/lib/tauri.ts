@@ -21,3 +21,22 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);
 }
+
+/**
+ * Copia texto al portapapeles. Dentro de Tauri `navigator.clipboard` no es fiable
+ * (el WebView no siempre lo expone), así que usamos el plugin de portapapeles y
+ * caemos al API del navegador solo fuera de Tauri. Devuelve true si copió.
+ */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (isTauri) {
+      const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+      await writeText(text);
+    } else {
+      await navigator.clipboard?.writeText(text);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}

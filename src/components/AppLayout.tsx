@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ChevronRight, Headphones } from "lucide-react";
@@ -114,6 +114,33 @@ export function AppLayout() {
     invoke("set_workflows_enabled", { workflows: getState().workflowsEnabled });
   }, []);
 
+  // Aviso de primer cierre: la app se queda en la bandeja (para que el atajo global
+  // siga funcionando). Lo explicamos una vez; después, cerrar esconde sin preguntar.
+  const [closeHint, setCloseHint] = useState(false);
+  useEffect(() => {
+    const p = on("main-close-requested", () => {
+      if (localStorage.getItem("closeHintSeen")) {
+        invoke("hide_main");
+      } else {
+        setCloseHint(true);
+      }
+    });
+    return () => {
+      p.then((un) => un());
+    };
+  }, []);
+
+  const dismissHint = () => {
+    localStorage.setItem("closeHintSeen", "1");
+    setCloseHint(false);
+    invoke("hide_main");
+  };
+  const quitFully = () => {
+    localStorage.setItem("closeHintSeen", "1");
+    setCloseHint(false);
+    invoke("quit_app");
+  };
+
   const toast = useStore((s) => s.toast);
   const modelName = useStore((s) => s.selectedModelName);
 
@@ -154,6 +181,33 @@ export function AppLayout() {
 
       {!isTauri && <RecordingOverlay />}
       <FeedbackButton />
+
+      {closeHint && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-line bg-app p-5 shadow-2xl">
+            <h2 className="text-base font-bold text-ink">Still running in the background</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              Yawning Face keeps running in your system tray (bottom-right) so your
+              dictation shortcut works in any app. To fully quit, use{" "}
+              <span className="font-semibold text-ink">tray icon &rsaquo; Quit</span>, or quit now.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={quitFully}
+                className="btn-secondary px-3.5 py-2 text-[13px]"
+              >
+                Quit app
+              </button>
+              <button
+                onClick={dismissHint}
+                className="rounded-lg bg-accentbtn px-3.5 py-2 text-[13px] font-semibold text-app"
+              >
+                Keep in tray
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div className="pointer-events-none fixed inset-x-0 top-4 z-[70] flex justify-center px-4">

@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { Mic, Loader2, Check } from "lucide-react";
+import { PTT_LABEL } from "@/lib/hotkey";
 
 export type PillState = "idle" | "listening" | "transcribing" | "done";
 
@@ -72,7 +73,7 @@ export function RecordingPill({
       {state === "idle" && (
         <>
           <Mic size={15} className="text-white/70" />
-          <span className="text-[13px] font-medium text-white/60">Hold Ctrl + ⇧</span>
+          <span className="text-[13px] font-medium text-white/60">Hold {PTT_LABEL}</span>
         </>
       )}
     </motion.div>

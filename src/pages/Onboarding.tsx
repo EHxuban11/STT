@@ -4,6 +4,7 @@ import { Logo } from "@/components/Logo";
 import { useStore, setState, getState } from "@/lib/store";
 import { downloadModel } from "@/lib/models";
 import { invoke } from "@/lib/tauri";
+import { PTT_KEYS } from "@/lib/hotkey";
 
 // Onboarding de primer arranque, original, inspirado en el flujo típico de apps de dictado
 // (bienvenida → micrófono → descargar modelo → probar). No pide correo ni datos personales.
@@ -183,7 +184,7 @@ export default function Onboarding() {
             <>
               <h1 className="text-2xl font-bold tracking-tight text-ink">Try it out</h1>
               <p className="mt-2 leading-relaxed text-muted">
-                Click the box below, hold <kbd className="kbd">Ctrl</kbd> + <kbd className="kbd">Shift</kbd>,
+                Click the box below, hold <kbd className="kbd">{PTT_KEYS[0]}</kbd> + <kbd className="kbd">{PTT_KEYS[1]}</kbd>,
                 say something, then release.
               </p>
               <div className="mt-4 rounded-xl border border-line bg-card p-3 text-left">

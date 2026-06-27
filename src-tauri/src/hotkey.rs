@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 #[derive(Default)]
 struct Mods {
     ctrl: bool,
-    shift: bool,
+    alt: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -18,15 +18,19 @@ pub enum PttEvent {
 
 const ACTIVATION_DELAY: Duration = Duration::from_millis(140);
 
-/// Global keyboard hook. Emits "ptt" = "start" when Ctrl+Shift are held,
+/// Global keyboard hook. Emits "ptt" = "start" when Ctrl+Win are held,
 /// and "stop" when either modifier is released.
+///
+/// Se usa Ctrl+Win (no Ctrl+Shift) para no chocar con la selección de texto
+/// (Ctrl+Shift+flechas/clic) en editores. Ctrl+Win no abre el menú Inicio
+/// (eso solo ocurre al soltar Win en solitario), así que es seguro mantenerlo.
 #[cfg(target_os = "windows")]
 pub fn spawn_ptt_listener<F>(mut on_event: F)
 where
     F: FnMut(PttEvent) + Send + 'static,
 {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        GetAsyncKeyState, VK_CONTROL, VK_LCONTROL, VK_LSHIFT, VK_RCONTROL, VK_RSHIFT, VK_SHIFT,
+        GetAsyncKeyState, VK_CONTROL, VK_LCONTROL, VK_LWIN, VK_RCONTROL, VK_RWIN,
     };
 
     fn down(vk: u16) -> bool {
@@ -34,7 +38,7 @@ where
     }
 
     fn modifier(vk: u16) -> bool {
-        matches!(vk, VK_CONTROL | VK_LCONTROL | VK_RCONTROL | VK_SHIFT | VK_LSHIFT | VK_RSHIFT)
+        matches!(vk, VK_CONTROL | VK_LCONTROL | VK_RCONTROL | VK_LWIN | VK_RWIN)
     }
 
     fn other_key_down() -> bool {
@@ -52,8 +56,8 @@ where
         let mut state = State::Idle;
         loop {
             let ctrl = down(VK_CONTROL) || down(VK_LCONTROL) || down(VK_RCONTROL);
-            let shift = down(VK_SHIFT) || down(VK_LSHIFT) || down(VK_RSHIFT);
-            let both = ctrl && shift;
+            let win = down(VK_LWIN) || down(VK_RWIN);
+            let both = ctrl && win;
 
             match (&state, both) {
                 (State::Idle, true) => {
@@ -96,7 +100,8 @@ where
                 EventType::KeyRelease(k) => set(&mut state, k, false),
                 _ => return,
             }
-            let both = state.ctrl && state.shift;
+            // En macOS: Ctrl + Option (Opt). Evita que Shift (mayúsculas) dispare el mic.
+            let both = state.ctrl && state.alt;
             if both && !active {
                 active = true;
                 on_event(PttEvent::Start);
@@ -116,7 +121,8 @@ where
 fn set(m: &mut Mods, k: Key, down: bool) {
     match k {
         Key::ControlLeft | Key::ControlRight => m.ctrl = down,
-        Key::ShiftLeft | Key::ShiftRight => m.shift = down,
+        // En macOS, Option izquierda = Alt y Option derecha = AltGr.
+        Key::Alt | Key::AltGr => m.alt = down,
         _ => {}
     }
 }

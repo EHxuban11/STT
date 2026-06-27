@@ -1,6 +1,6 @@
-import { Cloud, Cpu, Download, Globe, Languages, Loader2, MonitorCog } from "lucide-react";
-import { ProviderRow, SectionLabel, SetupBadge } from "@/components/ui";
-import { CLOUD_STT, LOCAL_ENGLISH, LOCAL_MULTI, LocalModel } from "@/lib/data";
+import { Download, Globe, Languages, Loader2, MonitorCog } from "lucide-react";
+import { ProviderRow, SectionLabel } from "@/components/ui";
+import { LOCAL_ENGLISH, LOCAL_MULTI, LocalModel } from "@/lib/data";
 import { downloadModel } from "@/lib/models";
 import { getState, setState, useStore } from "@/lib/store";
 import { invoke } from "@/lib/tauri";
@@ -75,19 +75,16 @@ export default function SpeechModels() {
     models.map((m) => {
       const id = `${group}:${m.name}`;
       const backendId = m.backendId;
-      const dl = backendId ? downloads[backendId] : undefined;
-      const isInstalled = !!backendId && installed.includes(backendId);
-      const isAvailable = !!backendId;
+      const dl = downloads[backendId];
+      const isInstalled = installed.includes(backendId);
 
       const selectModel = () => {
-        if (!backendId) return;
         setState({ selectedModelId: id, selectedModelName: m.name, activeModelId: backendId });
         invoke("set_active_model", { id: backendId });
       };
 
       const onClick = async () => {
         if (dl) return;
-        if (!backendId) return;
         if (isInstalled) {
           selectModel();
         } else {
@@ -100,8 +97,6 @@ export default function SpeechModels() {
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
           <Loader2 size={14} className="animate-spin" /> {pct(dl)}%
         </span>
-      ) : !isAvailable ? (
-        <span className="text-xs font-semibold text-faint">Coming soon</span>
       ) : isInstalled ? undefined : (
         <Download size={16} className="text-faint" />
       );
@@ -111,11 +106,11 @@ export default function SpeechModels() {
           key={id}
           logo={<ModelTile kind={m.kind} />}
           name={m.name}
-          sub={dl ? `Downloading... ${pct(dl)}%` : isAvailable ? m.size : `${m.size} - Coming soon`}
+          sub={dl ? `Downloading... ${pct(dl)}%` : m.size}
           selected={selected === id}
           onClick={onClick}
           right={right}
-          disabled={!isAvailable || !!dl}
+          disabled={!!dl}
         />
       );
     });
@@ -140,35 +135,9 @@ export default function SpeechModels() {
         {renderModels("ml", LOCAL_MULTI)}
       </div>
 
-      <SectionLabel>
-        <Cpu size={14} /> GPU Acceleration
-      </SectionLabel>
-      <ProviderRow
-        logo={
-          <div className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-600/90 text-white">
-            <Cpu size={18} />
-          </div>
-        }
-        name="NVIDIA CUDA"
-        sub="RTX 2000+ - ~631 MB - No CUDA install needed"
-        right={<span className="text-xs font-semibold text-faint">Coming soon</span>}
-        disabled
-      />
-
-      <SectionLabel>
-        <Cloud size={14} /> Cloud / AI Providers
-      </SectionLabel>
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-        {CLOUD_STT.map((p, i) => (
-          <ProviderRow
-            key={`${p.name}-${p.sub}-${i}`}
-            logo={<span className="text-xs font-bold text-muted">{p.name.charAt(0)}</span>}
-            name={p.name}
-            sub={p.sub}
-            right={<SetupBadge />}
-          />
-        ))}
-      </div>
+      <p className="px-1 pt-6 text-xs text-faint">
+        All models run on-device. Your audio never leaves your computer.
+      </p>
     </div>
   );
 }

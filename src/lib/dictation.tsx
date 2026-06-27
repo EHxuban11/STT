@@ -71,15 +71,15 @@ export function useDictation() {
       })
     );
 
-    // Demo en navegador: mantener Ctrl+Shift.
+    // Demo en navegador: mantener Ctrl+Alt (espejo del Ctrl+Win/Opt del backend).
     const onKey = (e: KeyboardEvent) => {
-      if (!isTauri && e.ctrlKey && e.shiftKey && getState().recording !== "listening") {
+      if (!isTauri && e.ctrlKey && e.altKey && getState().recording !== "listening") {
         e.preventDefault();
         startDictation();
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (!isTauri && getState().recording === "listening" && (e.key === "Control" || e.key === "Shift")) {
+      if (!isTauri && getState().recording === "listening" && (e.key === "Control" || e.key === "Alt")) {
         e.preventDefault();
         stopDictation();
       }

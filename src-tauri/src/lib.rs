@@ -132,6 +132,20 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({ "name": "Yawning Face STT", "version": env!("CARGO_PKG_VERSION") })
 }
 
+/// Cierra la app de verdad (sale del proceso, no solo a la bandeja).
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
+/// Esconde la ventana principal a la bandeja (la app sigue corriendo).
+#[tauri::command]
+fn hide_main(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
+}
+
 fn open_url(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     let mut cmd = {
@@ -570,6 +584,9 @@ fn show_main(app: &AppHandle) {
 
 fn show_pill(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("pill") {
+        // Re-afirmar always-on-top al mostrar: en Windows la isla puede perder el
+        // nivel "topmost" y quedar tapada por otras ventanas (p. ej. PowerShell).
+        let _ = w.set_always_on_top(true);
         let _ = w.show();
     }
 }
@@ -578,6 +595,18 @@ fn hide_pill(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("pill") {
         let _ = w.hide();
     }
+}
+
+/// Muestra la isla con un mensaje breve (p. ej. "No microphone detected") y la
+/// esconde tras unos segundos. Se usa cuando no se puede iniciar la captura.
+fn show_pill_message(app: &AppHandle, message: &str) {
+    show_pill(app);
+    let _ = app.emit("pill-message", message.to_string());
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(2800));
+        hide_pill(&app2);
+    });
 }
 
 /// Nivel RMS (0..1) de un bloque de muestras, para el medidor de la isla.
@@ -658,7 +687,10 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
         Err(e) => {
             *state.engine.lock() = engine; // devolver el motor a la caché
             set_recording(&state.recording, false);
-            return Err(e.to_string());
+            // Sin captura: lo más habitual es que no haya micrófono. Avisar en la isla.
+            eprintln!("[audio] capture failed: {e}");
+            show_pill_message(app, "No microphone detected");
+            return Ok(());
         }
     };
     let src_sr = capture.src_sr;
@@ -831,13 +863,18 @@ pub fn run() {
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    // La app sigue viva en la bandeja para que el atajo global funcione.
+                    // No escondemos aquí: avisamos al frontend, que muestra el aviso de
+                    // primer cierre (una sola vez) y luego esconde la ventana.
                     api.prevent_close();
-                    let _ = window.hide();
+                    let _ = window.emit("main-close-requested", ());
                 }
             }
         })
         .invoke_handler(tauri::generate_handler![
             get_app_info,
+            quit_app,
+            hide_main,
             open_external_url,
             list_models,
             list_installed_models,
