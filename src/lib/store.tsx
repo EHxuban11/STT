@@ -3,7 +3,13 @@ import { invoke } from "./tauri";
 
 // Store global mínimo, persistido en localStorage (se migrará a Tauri Store en escritorio).
 export type RecordingPos = "top" | "bottom" | "off";
-export type DictionaryMode = "off" | "postprocess";
+export type DictionaryMode = "off" | "postprocess" | "cerebras";
+export type CerebrasModel = "gpt-oss-120b" | "zai-glm-4.7" | "gemma-4-31b";
+
+export interface CerebrasSettings {
+  model: CerebrasModel;
+  context: string;
+}
 
 // Entrada de diccionario: "cuando oigas {from}, escribe {to}".
 export interface DictEntry {
@@ -28,6 +34,7 @@ export interface AppState {
   workflowsEnabled: Record<string, boolean>;
   dictionary: DictEntry[];
   dictionaryMode: DictionaryMode;
+  cerebras: CerebrasSettings;
   transcriptions: Transcription[];
   installed: string[]; // ids de BACKEND de modelos descargados (p.ej. "parakeet-tdt-0.6b-v2-int8")
   activeModelId: string; // id de BACKEND del modelo activo (el que usa el dictado)
@@ -64,6 +71,11 @@ const DEFAULT: AppState = {
   workflowsEnabled: {},
   dictionary: [],
   dictionaryMode: "postprocess",
+  cerebras: {
+    model: "gpt-oss-120b",
+    context:
+      "The speaker works primarily in machine learning and software engineering. Prefer terminology, names, tools, libraries, commands, and acronyms from those fields when the transcription is ambiguous.",
+  },
   transcriptions: [],
   installed: [], // se rellena desde el backend (list_installed_models); en navegador, por descargas simuladas
   activeModelId: "parakeet-tdt-0.6b-v3-int8",
@@ -80,7 +92,8 @@ const KEY = "vowen.state";
 const EPHEMERAL: (keyof AppState)[] = ["recording", "liveText", "downloads", "toast"];
 
 const RECORDING_POS: RecordingPos[] = ["top", "bottom", "off"];
-const DICTIONARY_MODES: DictionaryMode[] = ["off", "postprocess"];
+const DICTIONARY_MODES: DictionaryMode[] = ["off", "postprocess", "cerebras"];
+const CEREBRAS_MODELS: CerebrasModel[] = ["gpt-oss-120b", "zai-glm-4.7", "gemma-4-31b"];
 const INSERT_METHODS: AppState["insertMethod"][] = ["paste", "type"];
 const RECORDING_STATES: NonNullable<AppState["recording"]>[] = [
   "idle",
@@ -155,6 +168,8 @@ function transcriptionEntries(value: unknown): Transcription[] {
 function normalizeState(value: unknown): AppState {
   if (!isRecord(value)) return { ...DEFAULT };
   const general = isRecord(value.general) ? value.general : {};
+  const cerebras = isRecord(value.cerebras) ? value.cerebras : {};
+  const context = stringOr(cerebras.context, DEFAULT.cerebras.context).trim().slice(0, 4000);
   const loaded: AppState = {
     ...DEFAULT,
     selectedModelId: stringOr(value.selectedModelId, DEFAULT.selectedModelId),
@@ -173,6 +188,10 @@ function normalizeState(value: unknown): AppState {
     workflowsEnabled: workflowMap(value.workflowsEnabled),
     dictionary: dictEntries(value.dictionary),
     dictionaryMode: enumOr(value.dictionaryMode, DICTIONARY_MODES, DEFAULT.dictionaryMode),
+    cerebras: {
+      model: enumOr(cerebras.model, CEREBRAS_MODELS, DEFAULT.cerebras.model),
+      context,
+    },
     transcriptions: transcriptionEntries(value.transcriptions),
     installed: stringArray(value.installed),
     activeModelId: stringOr(value.activeModelId, DEFAULT.activeModelId),
@@ -264,6 +283,12 @@ export function saveDictionary(entries: DictEntry[]) {
 export function saveDictionaryMode(mode: DictionaryMode) {
   setState({ dictionaryMode: mode });
   invoke("set_dictionary_mode", { mode });
+}
+
+/** Guarda los ajustes no secretos de Cerebras y los sincroniza con el backend. */
+export async function saveCerebrasSettings(settings: CerebrasSettings) {
+  await invoke("set_cerebras_config", { model: settings.model, context: settings.context });
+  setState({ cerebras: settings });
 }
 
 /** Guarda el estado de un workflow y lo sincroniza con el backend. */

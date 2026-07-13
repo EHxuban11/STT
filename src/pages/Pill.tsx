@@ -66,6 +66,10 @@ export default function Pill() {
           setMessage(null);
           setBusy(false);
           startLoop();
+        } else if (s === "transcribing") {
+          setMessage(null);
+          setBusy(true);
+          stopLoop();
         } else if (s === "idle") {
           window.setTimeout(stopLoop, 300);
         }

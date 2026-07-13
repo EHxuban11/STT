@@ -51,6 +51,9 @@ export function useDictation() {
         if (phase === "recording") {
           clearTimers();
           setState({ recording: "listening", liveText: "" });
+        } else if (phase === "transcribing") {
+          clearTimers();
+          setState({ recording: "transcribing" });
         } else if (phase === "idle") {
           clearTimers();
           timers.push(window.setTimeout(() => setState({ recording: null }), 1400));

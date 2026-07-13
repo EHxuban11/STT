@@ -56,7 +56,9 @@ export default function Dictionary() {
         body={
           dictionaryMode === "off"
             ? "Dictionary replacements are currently off. Your entries are saved but not applied."
-            : "Post-processing replacements are applied after local speech recognition, before text is inserted or shown."
+            : dictionaryMode === "cerebras"
+              ? "For live dictation, Cerebras receives the local transcription, your domain context, and up to the first 200 non-empty dictionary entries to correct likely mistakes. If the request fails, the local transcription is kept. File transcription stays local without dictionary correction."
+              : "Exact replacements are applied after local speech recognition, before text is inserted or shown."
         }
       />
 

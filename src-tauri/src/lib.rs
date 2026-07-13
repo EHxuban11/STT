@@ -1,4 +1,5 @@
 mod audio;
+mod cerebras;
 mod hotkey;
 mod inject;
 mod media;
@@ -47,11 +48,12 @@ enum InjectMode {
     Off,
 }
 
-#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum DictionaryMode {
     Off,
     Postprocess,
+    Cerebras,
 }
 
 #[derive(serde::Deserialize)]
@@ -96,6 +98,7 @@ struct AppState {
     provider: Mutex<String>,
     inject_mode: Mutex<InjectMode>,
     dictionary_mode: Mutex<DictionaryMode>,
+    cerebras: Mutex<cerebras::Config>,
     /// Diccionario del usuario: pares (cuando oigas, escribe) aplicados a cada dictado.
     dictionary: Mutex<Vec<(String, String)>>,
     workflows_enabled: Mutex<HashMap<String, bool>>,
@@ -251,6 +254,50 @@ fn set_dictionary_mode(state: State<'_, Arc<AppState>>, mode: DictionaryMode) {
     *state.dictionary_mode.lock() = mode;
 }
 
+#[tauri::command]
+fn get_cerebras_status() -> Result<cerebras::KeyStatus, String> {
+    cerebras::status().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_cerebras_api_key(api_key: String) -> Result<cerebras::KeyStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        cerebras::save_api_key(&api_key).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "Cerebras key verification was interrupted".to_string())?
+}
+
+#[tauri::command]
+async fn test_cerebras_connection() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        cerebras::test_connection().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "Cerebras connection test was interrupted".to_string())??;
+    Ok("Connected to Cerebras".to_string())
+}
+
+#[tauri::command]
+async fn clear_cerebras_api_key() -> Result<cerebras::KeyStatus, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        cerebras::clear_api_key().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "Cerebras key removal was interrupted".to_string())?
+}
+
+#[tauri::command]
+fn set_cerebras_config(
+    state: State<'_, Arc<AppState>>,
+    model: String,
+    context: String,
+) -> Result<(), String> {
+    let config = cerebras::Config::normalized(model, context).map_err(|e| e.to_string())?;
+    *state.cerebras.lock() = config;
+    Ok(())
+}
+
 /// Reemplaza el diccionario del usuario (se aplica a cada dictado antes de insertar).
 #[tauri::command]
 fn set_dictionary(state: State<'_, Arc<AppState>>, entries: Vec<DictEntry>) {
@@ -272,7 +319,7 @@ fn apply_dictionary_for_mode(
     mode: DictionaryMode,
 ) -> String {
     match mode {
-        DictionaryMode::Off => text.to_string(),
+        DictionaryMode::Off | DictionaryMode::Cerebras => text.to_string(),
         DictionaryMode::Postprocess => stt::apply_dictionary(text, dict),
     }
 }
@@ -778,17 +825,20 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
         let cleaned = stt::clean_text(&raw);
         let dict = state2.dictionary.lock().clone();
         let dictionary_mode = *state2.dictionary_mode.lock();
-        let final_text = apply_dictionary_for_mode(&cleaned, &dict, dictionary_mode);
-
-        hide_pill(&app2);
+        // Workflows use deterministic local text. In Cerebras mode that is the untouched cleaned
+        // ASR result, so neither a cloud response nor an unconditional dictionary replacement can
+        // manufacture an actionable command.
+        let workflow_text = apply_dictionary_for_mode(&cleaned, &dict, dictionary_mode);
 
         // Devolver el motor a la caché (sin recargar el modelo la próxima vez).
         if *state2.primary_id.lock() == session_model_id {
             *state2.engine.lock() = engine;
         }
 
-        if !final_text.is_empty() {
-            let workflow_handled = match run_workflow_if_enabled(&app2, &state2, &final_text) {
+        if !workflow_text.is_empty() {
+            // Workflows are detected only from deterministic local text. A cloud response is
+            // never allowed to manufacture an actionable workflow command.
+            let workflow_handled = match run_workflow_if_enabled(&app2, &state2, &workflow_text) {
                 Ok(Some(event)) => {
                     let _ = app2.emit("workflow-triggered", event);
                     true
@@ -800,6 +850,29 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
                     true
                 }
             };
+
+            // When Cerebras is unavailable, keep raw local ASR. Exact mode remains available for
+            // users who explicitly want unconditional substitutions.
+            let mut final_text = if dictionary_mode == DictionaryMode::Cerebras {
+                cleaned.clone()
+            } else {
+                workflow_text
+            };
+            if !workflow_handled && dictionary_mode == DictionaryMode::Cerebras {
+                let config = state2.cerebras.lock().clone();
+                // Give Cerebras the untouched cleaned ASR result so it can decide whether an
+                // exact dictionary phrase is actually the intended term in this context.
+                match cerebras::cleanup_transcription(&config, &cleaned, &dict) {
+                    Ok(corrected) => final_text = corrected,
+                    Err(e) => {
+                        eprintln!("[cerebras] {e}");
+                        let _ = app2.emit(
+                            "cerebras-fallback",
+                            "Cerebras was unavailable, so the local transcription was used.",
+                        );
+                    }
+                }
+            }
 
             if !workflow_handled {
                 let mode = *state2.inject_mode.lock();
@@ -820,6 +893,7 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
                 },
             );
         }
+        hide_pill(&app2);
         let _ = app2.emit("state", "idle");
         // Liberar la grabación como ÚLTIMO paso (impide solapar una nueva sesión durante el finalize).
         set_recording(&recording, false);
@@ -829,6 +903,9 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
 }
 
 fn stop_session(app: &AppHandle, state: &Arc<AppState>) {
+    if !is_recording(&state.recording) {
+        return;
+    }
     // Quiesce and drop the producer before publishing EOF to the worker. Once it observes
     // stop_req, no callback can add more frames while it performs the final ring drain.
     let capture = state.capture.lock().take();
@@ -836,7 +913,9 @@ fn stop_session(app: &AppHandle, state: &Arc<AppState>) {
         capture.stop();
     }
     set_recording(&state.stop_req, true);
-    hide_pill(app);
+    // The session remains claimed while final ASR and optional cloud correction run, so keep a
+    // visible processing state until it is actually ready for the next hotkey press.
+    let _ = app.emit("state", "transcribing");
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -918,6 +997,11 @@ pub fn run() {
             list_installed_models,
             set_inject_mode,
             set_dictionary_mode,
+            get_cerebras_status,
+            save_cerebras_api_key,
+            test_cerebras_connection,
+            clear_cerebras_api_key,
+            set_cerebras_config,
             set_dictionary,
             set_workflows_enabled,
             start_recording,
@@ -953,6 +1037,7 @@ pub fn run() {
                 provider: Mutex::new(provider_default()),
                 inject_mode: Mutex::new(InjectMode::Paste),
                 dictionary_mode: Mutex::new(DictionaryMode::Postprocess),
+                cerebras: Mutex::new(cerebras::Config::default()),
                 dictionary: Mutex::new(Vec::new()),
                 workflows_enabled: Mutex::new(HashMap::new()),
             });

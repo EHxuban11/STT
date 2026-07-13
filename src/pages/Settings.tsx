@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Search, CheckCircle2 } from "lucide-react";
 import clsx from "clsx";
@@ -10,9 +10,15 @@ import {
   SegmentedTabs,
 } from "@/components/ui";
 import { SETTINGS_SECTIONS, SettingsSection, SHORTCUTS } from "@/lib/data";
-import { useStore, setState, saveDictionaryMode } from "@/lib/store";
-import type { DictionaryMode } from "@/lib/store";
-import { invoke } from "@/lib/tauri";
+import {
+  useStore,
+  setState,
+  saveDictionaryMode,
+  saveCerebrasSettings,
+  showToast,
+} from "@/lib/store";
+import type { CerebrasModel, DictionaryMode } from "@/lib/store";
+import { invoke, isTauri } from "@/lib/tauri";
 import { useTheme, type ThemeChoice } from "@/lib/theme";
 
 // Selector de apariencia: Light / Dark / System (System sigue al sistema operativo).
@@ -227,32 +233,294 @@ function DictionaryModeSelect() {
       onChange={(event) => change(event.target.value as DictionaryMode)}
       className="rounded-xl border border-line bg-app px-3 py-2 text-sm font-medium text-ink outline-none focus:border-brand"
     >
-      <option value="postprocess">Post-processing</option>
+      <option value="postprocess">Exact replacements</option>
+      <option value="cerebras">Cerebras AI</option>
       <option value="off">Off</option>
     </select>
   );
 }
 
-function DictionarySection() {
-  const dictionary = useStore((s) => s.dictionary);
+interface CerebrasKeyStatus {
+  configured: boolean;
+  source: "credential_store" | "environment" | "none";
+}
+
+const CEREBRAS_MODELS: { id: CerebrasModel; label: string }[] = [
+  { id: "gpt-oss-120b", label: "GPT OSS 120B" },
+  { id: "zai-glm-4.7", label: "Z.ai GLM 4.7" },
+  { id: "gemma-4-31b", label: "Gemma 4 31B" },
+];
+
+function credentialLabel(status: CerebrasKeyStatus | null, loading: boolean, unavailable: boolean) {
+  if (loading) return "Checking…";
+  if (unavailable) return "Status unavailable";
+  if (!status || status.source === "none") return "Not configured";
+  if (status.source === "environment") return "Environment variable";
+  return "Credential store";
+}
+
+function CerebrasConfigCard() {
+  const saved = useStore((s) => s.cerebras);
+  const [model, setModel] = useState<CerebrasModel>(saved.model);
+  const [context, setContext] = useState(saved.context);
+  const [apiKey, setApiKey] = useState("");
+  const [status, setStatus] = useState<CerebrasKeyStatus | null>(null);
+  const [statusUnavailable, setStatusUnavailable] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState(isTauri);
+  const [busy, setBusy] = useState<"save-key" | "test" | "remove" | "settings" | null>(null);
+
+  useEffect(() => {
+    setModel(saved.model);
+    setContext(saved.context);
+  }, [saved.context, saved.model]);
+
+  const refreshStatus = useCallback(async () => {
+    if (!isTauri) {
+      setLoadingStatus(false);
+      return;
+    }
+    setLoadingStatus(true);
+    setStatusUnavailable(false);
+    try {
+      const next = await invoke<CerebrasKeyStatus>("get_cerebras_status");
+      setStatus(next);
+    } catch {
+      setStatus(null);
+      setStatusUnavailable(true);
+    } finally {
+      setLoadingStatus(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStatus();
+  }, [refreshStatus]);
+
+  async function verifyAndSave() {
+    const key = apiKey.trim();
+    if (!key) {
+      showToast("Paste a Cerebras API key first");
+      return;
+    }
+    if (!isTauri) {
+      showToast("Cerebras setup is available in the desktop app only");
+      return;
+    }
+    setBusy("save-key");
+    try {
+      await invoke("save_cerebras_api_key", { apiKey: key });
+      setApiKey("");
+      await refreshStatus();
+      showToast("Cerebras key verified and saved securely");
+    } catch {
+      showToast("Cerebras could not verify that key. Check it and try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function testConnection() {
+    if (!isTauri) {
+      showToast("Connection testing is available in the desktop app only");
+      return;
+    }
+    setBusy("test");
+    try {
+      await invoke("test_cerebras_connection");
+      showToast("Cerebras connection is working");
+    } catch {
+      showToast("Cerebras connection failed. The saved key was not changed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removeKey() {
+    if (!isTauri) return;
+    setBusy("remove");
+    try {
+      await invoke("clear_cerebras_api_key");
+      setApiKey("");
+      await refreshStatus();
+      showToast("Saved Cerebras key removed");
+    } catch {
+      showToast("Could not remove the saved Cerebras key");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveSettings() {
+    const nextContext = context.trim().slice(0, 4000);
+    setBusy("settings");
+    try {
+      await saveCerebrasSettings({ model, context: nextContext });
+      setContext(nextContext);
+      showToast("Cerebras settings saved");
+    } catch {
+      showToast("Could not save the Cerebras settings");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const settingsChanged = model !== saved.model || context.trim() !== saved.context;
+  const source = credentialLabel(status, loadingStatus, statusUnavailable);
 
   return (
-    <Card>
-      <SettingRow
-        label="Apply Dictionary"
-        help="Post-processing applies exact replacements after the speech model returns text. Turn it off to compare raw model output."
-        control={<DictionaryModeSelect />}
-      />
-      <SettingRow
-        label="Vocabulary"
-        help={`${dictionary.length} saved ${dictionary.length === 1 ? "entry" : "entries"}.`}
-        control={
-          <Link to="/dictionary" className="btn-secondary px-3.5 py-2 text-[13px]">
-            Edit Dictionary
-          </Link>
-        }
-      />
-    </Card>
+    <div className="rounded-2xl border border-line p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[15px] font-semibold text-ink">Cerebras AI correction</div>
+          <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted">
+            For live dictation, the local transcription, your domain context, and up to the first
+            200 non-empty dictionary entries are sent to Cerebras. If correction fails, the app
+            uses the local transcription. File transcription remains local without dictionary
+            correction.
+          </p>
+        </div>
+        <span
+          className={clsx(
+            "rounded-full px-2.5 py-1 text-xs font-semibold",
+            status?.configured ? "bg-emerald-500/15 text-emerald-600" : "bg-card text-muted"
+          )}
+        >
+          {source}
+        </span>
+      </div>
+
+      {!isTauri && (
+        <div className="mt-4 rounded-xl border border-line bg-card px-3.5 py-3 text-[13px] text-muted">
+          API-key setup and connection tests are available in the desktop app only. The browser
+          preview does not accept or save credentials.
+        </div>
+      )}
+
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-semibold text-muted">Model</span>
+          <select
+            value={model}
+            onChange={(event) => setModel(event.target.value as CerebrasModel)}
+            className="w-full rounded-xl border border-line bg-app px-3 py-2.5 text-sm font-medium text-ink outline-none focus:border-brand"
+          >
+            {CEREBRAS_MODELS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-semibold text-muted">API key</span>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder={status?.configured ? "Enter a replacement key" : "Paste a Cerebras API key"}
+            autoComplete="off"
+            spellCheck={false}
+            disabled={!isTauri || busy !== null}
+            className="w-full rounded-xl border border-line bg-app px-3 py-2.5 text-sm text-ink outline-none placeholder:text-faint focus:border-brand disabled:cursor-not-allowed disabled:opacity-60"
+          />
+        </label>
+      </div>
+
+      <label className="mt-4 block">
+        <span className="mb-1.5 block text-xs font-semibold text-muted">Domain context</span>
+        <textarea
+          value={context}
+          onChange={(event) => setContext(event.target.value)}
+          maxLength={4000}
+          rows={4}
+          className="w-full resize-y rounded-xl border border-line bg-app px-3 py-2.5 text-sm leading-relaxed text-ink outline-none placeholder:text-faint focus:border-brand"
+          placeholder="Describe the terminology and subject matter you usually dictate."
+        />
+        <span className="mt-1 block text-xs text-faint">
+          This non-secret context is stored with your app settings and sent only in Cerebras AI mode.
+        </span>
+      </label>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+        <p className="text-xs text-muted">
+          {status?.source === "environment"
+            ? "Source: CEREBRAS_API_KEY environment variable."
+            : status?.source === "credential_store"
+              ? "Source: your operating system credential store."
+              : statusUnavailable
+                ? "Credential status could not be read. Try reopening Settings."
+                : "No Cerebras credential is currently available."}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void saveSettings()}
+            disabled={!settingsChanged || busy !== null}
+            className="btn-secondary px-3.5 py-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy === "settings" ? "Saving…" : "Save settings"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void verifyAndSave()}
+            disabled={!isTauri || !apiKey.trim() || busy !== null}
+            className="btn-primary px-3.5 py-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy === "save-key" ? "Verifying…" : "Verify & save"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void testConnection()}
+            disabled={!isTauri || !status?.configured || busy !== null}
+            className="btn-secondary px-3.5 py-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy === "test" ? "Testing…" : "Test"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void removeKey()}
+            disabled={!isTauri || status?.source !== "credential_store" || busy !== null}
+            className="btn-ghost px-3 py-2 text-[13px] text-muted hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {busy === "remove" ? "Removing…" : "Remove"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DictionarySection() {
+  const dictionary = useStore((s) => s.dictionary);
+  const mode = useStore((s) => s.dictionaryMode);
+  const modeHelp =
+    mode === "cerebras"
+      ? "For live dictation, Cerebras reviews the local transcript using your dictionary and domain context. This sends those contents to Cerebras."
+      : mode === "postprocess"
+        ? "Exact replacements run locally after speech recognition. They only match the text you specify."
+        : "Dictionary processing is disabled, so the raw local speech-model result is used.";
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <SettingRow
+          label="Dictionary mode"
+          help={modeHelp}
+          control={<DictionaryModeSelect />}
+        />
+        <SettingRow
+          label="Vocabulary"
+          help={`${dictionary.length} saved ${dictionary.length === 1 ? "entry" : "entries"}.`}
+          control={
+            <Link to="/dictionary" className="btn-secondary px-3.5 py-2 text-[13px]">
+              Edit Dictionary
+            </Link>
+          }
+        />
+      </Card>
+      <CerebrasConfigCard />
+    </div>
   );
 }
 

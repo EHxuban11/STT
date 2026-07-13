@@ -67,6 +67,13 @@ export function AppLayout() {
   }, []);
 
   useEffect(() => {
+    const p = on<string>("cerebras-fallback", (msg) => showToast(msg));
+    return () => {
+      p.then((un) => un());
+    };
+  }, []);
+
+  useEffect(() => {
     const p = on<string>("tray-action", async (action) => {
       if (action !== "copy_last") return;
       const text = getState().transcriptions[0]?.text || getState().liveText;
@@ -111,6 +118,10 @@ export function AppLayout() {
     invoke("set_inject_mode", { mode: getState().insertMethod });
     invoke("set_dictionary_mode", { mode: getState().dictionaryMode });
     invoke("set_dictionary", { entries: getState().dictionary });
+    invoke("set_cerebras_config", {
+      model: getState().cerebras.model,
+      context: getState().cerebras.context,
+    });
     invoke("set_workflows_enabled", { workflows: getState().workflowsEnabled });
   }, []);
 
