@@ -4,7 +4,7 @@ use cpal::{SampleFormat, StreamConfig};
 use ringbuf::traits::{Consumer, Producer, Split};
 use ringbuf::HeapRb;
 use rubato::{FftFixedIn, Resampler};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 pub const TARGET_SR: usize = 16_000;
@@ -14,6 +14,27 @@ const RESAMPLE_CHUNK: usize = 1024;
 pub struct Capture {
     pub stream: cpal::Stream,
     pub src_sr: u32,
+    /// Number of mono source-rate frames rejected because the app ring was full.
+    pub dropped_samples: Arc<AtomicU64>,
+}
+
+impl Capture {
+    /// Stop callbacks before dropping the stream so the consumer can drain a stable ring.
+    pub fn stop(self) {
+        if let Err(e) = self.stream.pause() {
+            eprintln!("[audio] could not pause capture stream: {e}");
+        }
+    }
+}
+
+fn push_or_count_drop(
+    prod: &mut impl Producer<Item = f32>,
+    sample: f32,
+    dropped_samples: &AtomicU64,
+) {
+    if prod.try_push(sample).is_err() {
+        dropped_samples.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 /// Construye un stream de entrada por defecto que mezcla a mono f32 y empuja a `prod`.
@@ -27,9 +48,11 @@ pub fn start_capture(mut prod: impl Producer<Item = f32> + Send + 'static) -> Re
     let channels = supported.channels() as usize;
     let cfg: StreamConfig = supported.config();
     let err_fn = |e| eprintln!("cpal stream error: {e}");
+    let dropped_samples = Arc::new(AtomicU64::new(0));
 
     macro_rules! mono_push {
         ($ty:ty, $to_f32:expr) => {{
+            let dropped_samples_for_callback = dropped_samples.clone();
             device.build_input_stream(
                 &cfg,
                 move |data: &[$ty], _: &cpal::InputCallbackInfo| {
@@ -38,7 +61,11 @@ pub fn start_capture(mut prod: impl Producer<Item = f32> + Send + 'static) -> Re
                         for &s in frame {
                             acc += ($to_f32)(s);
                         }
-                        let _ = prod.try_push(acc / channels as f32);
+                        push_or_count_drop(
+                            &mut prod,
+                            acc / channels as f32,
+                            &dropped_samples_for_callback,
+                        );
                     }
                 },
                 err_fn,
@@ -54,7 +81,11 @@ pub fn start_capture(mut prod: impl Producer<Item = f32> + Send + 'static) -> Re
         other => return Err(anyhow!("unsupported sample format {other:?}")),
     };
     stream.play()?;
-    Ok(Capture { stream, src_sr })
+    Ok(Capture {
+        stream,
+        src_sr,
+        dropped_samples,
+    })
 }
 
 /// Resampler en streaming src_sr -> 16k mono.
@@ -126,14 +157,55 @@ pub fn flag(v: bool) -> RecordingFlag {
     Arc::new(AtomicBool::new(v))
 }
 pub fn is_recording(f: &RecordingFlag) -> bool {
-    f.load(Ordering::Relaxed)
+    f.load(Ordering::Acquire)
 }
 pub fn set_recording(f: &RecordingFlag, v: bool) {
-    f.store(v, Ordering::Relaxed)
+    f.store(v, Ordering::Release)
 }
 /// Reclama la grabación de forma ATÓMICA: devuelve true solo si estaba libre (false→true).
 /// Evita que eventos "ptt start" repetidos abran dos sesiones simultáneas.
 pub fn try_claim(f: &RecordingFlag) -> bool {
     f.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counts_samples_rejected_by_a_full_ring() {
+        let (mut prod, mut cons) = HeapRb::<f32>::new(2).split();
+        let dropped = AtomicU64::new(0);
+
+        push_or_count_drop(&mut prod, 0.25, &dropped);
+        push_or_count_drop(&mut prod, 0.50, &dropped);
+        push_or_count_drop(&mut prod, 0.75, &dropped);
+        push_or_count_drop(&mut prod, 1.00, &dropped);
+        push_or_count_drop(&mut prod, 1.25, &dropped);
+
+        assert_eq!(dropped.load(Ordering::Relaxed), 3);
+        assert_eq!(cons.try_pop(), Some(0.25));
+
+        push_or_count_drop(&mut prod, 1.50, &dropped);
+        assert_eq!(dropped.load(Ordering::Relaxed), 3);
+        assert_eq!(cons.try_pop(), Some(0.50));
+        assert_eq!(cons.try_pop(), Some(1.50));
+    }
+
+    #[test]
+    fn drain_into_empties_every_queued_sample() {
+        let (mut prod, mut cons) = make_ring();
+        for sample in 0..5_000 {
+            assert!(prod.try_push(sample as f32).is_ok());
+        }
+
+        let mut drained = Vec::new();
+        assert_eq!(drain_into(&mut cons, &mut drained), 5_000);
+        assert_eq!(
+            drained,
+            (0..5_000).map(|sample| sample as f32).collect::<Vec<_>>()
+        );
+        assert_eq!(cons.try_pop(), None);
+    }
 }

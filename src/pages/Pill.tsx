@@ -95,7 +95,7 @@ export default function Pill() {
   if (message) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-transparent">
-        <div className="flex items-center gap-2.5 rounded-full bg-zinc-900/95 px-4 py-2.5 shadow-2xl ring-1 ring-white/10 backdrop-blur">
+        <div className="recording-pill-surface flex items-center gap-2.5 rounded-full bg-zinc-900/95 px-4 py-2.5 shadow-2xl ring-1 ring-white/10 backdrop-blur">
           <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
           <span className="text-[13px] font-medium text-white/90">{message}</span>
         </div>
@@ -105,7 +105,7 @@ export default function Pill() {
 
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-transparent">
-      <div className="flex items-center gap-3 rounded-full bg-zinc-900/95 px-4 py-2.5 shadow-2xl ring-1 ring-white/10 backdrop-blur">
+      <div className="recording-pill-surface flex items-center gap-3 rounded-full bg-zinc-900/95 px-4 py-2.5 shadow-2xl ring-1 ring-white/10 backdrop-blur">
         {busy ? (
           <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
         ) : (

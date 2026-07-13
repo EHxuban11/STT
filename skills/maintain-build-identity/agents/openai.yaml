@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maintain Build Identity"
+  short_description: "Keep development orange and releases normal"
+  default_prompt: "Use $maintain-build-identity to preserve and verify the automatic orange development identity without changing release styling."

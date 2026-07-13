@@ -154,14 +154,11 @@ fn replace_word_ci(haystack: &str, from: &str, to: &str) -> String {
     out
 }
 
-/// Motor de dictado en streaming: alimenta muestras 16k mono → texto interim + final.
+/// Cached speech recognizer and its reusable auxiliary model state.
 pub struct Engine {
     pub recognizer: OfflineRecognizer,
     pub fallback: Option<OfflineRecognizer>,
     pub vad: VoiceActivityDetector,
-    pending: Vec<f32>,
-    interim_buf: Vec<f32>,
-    pub final_text: String,
 }
 
 impl Engine {
@@ -174,70 +171,21 @@ impl Engine {
             recognizer,
             fallback,
             vad,
-            pending: Vec::new(),
-            interim_buf: Vec::new(),
-            final_text: String::new(),
         }
     }
 
-    /// Alimenta muestras 16k mono. Devuelve los textos de segmentos FINALES producidos.
-    pub fn feed(&mut self, samples: &[f32]) -> Vec<String> {
-        let mut finals = Vec::new();
-        self.pending.extend_from_slice(samples);
-        self.interim_buf.extend_from_slice(samples);
-
-        while self.pending.len() >= VAD_WINDOW {
-            let window: Vec<f32> = self.pending.drain(..VAD_WINDOW).collect();
-            self.vad.accept_waveform(&window);
-            while let Some(seg) = self.vad.front() {
-                let text = transcribe(&self.recognizer, seg.samples());
-                let text = text.trim();
-                if !text.is_empty() {
-                    self.final_text.push_str(text);
-                    self.final_text.push(' ');
-                    finals.push(text.to_string());
-                }
-                self.vad.pop();
-                self.interim_buf.clear();
-            }
-        }
-        finals
-    }
-
-    /// Transcripción interina del buffer en curso (llamar cada ~200ms).
-    pub fn interim(&self) -> String {
-        if self.interim_buf.len() < SAMPLE_RATE as usize / 5 {
-            return String::new();
-        }
-        transcribe(&self.recognizer, &self.interim_buf)
-    }
-
-    /// Reinicia el estado de sesión (reutilizando el modelo ya cargado en memoria).
+    /// Reset reusable auxiliary state before a new capture session.
     pub fn reset(&mut self) {
         self.vad.reset();
         self.vad.clear();
-        self.pending.clear();
-        self.interim_buf.clear();
-        self.final_text.clear();
     }
 
-    /// Al parar: vacía el habla restante y finaliza.
-    pub fn finish(&mut self) -> String {
-        if !self.pending.is_empty() {
-            let mut last = std::mem::take(&mut self.pending);
-            last.resize(VAD_WINDOW, 0.0);
-            self.vad.accept_waveform(&last);
+    /// Decode one complete 16 kHz mono utterance in a single recognizer call.
+    pub fn transcribe_complete(&self, samples: &[f32]) -> String {
+        if samples.is_empty() {
+            String::new()
+        } else {
+            transcribe(&self.recognizer, samples)
         }
-        self.vad.flush();
-        while let Some(seg) = self.vad.front() {
-            let text = transcribe(&self.recognizer, seg.samples());
-            let text = text.trim();
-            if !text.is_empty() {
-                self.final_text.push_str(text);
-                self.final_text.push(' ');
-            }
-            self.vad.pop();
-        }
-        self.final_text.trim().to_string()
     }
 }

@@ -14,8 +14,9 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
@@ -26,6 +27,15 @@ use tauri::{
 struct TranscriptEvent {
     text: String,
     interim: bool,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct AudioCaptureStatsEvent {
+    /// Mono frames rejected by the app ring at the microphone's native rate.
+    dropped_source_samples: u64,
+    source_sample_rate: u32,
+    dropped_duration_ms: f64,
+    captured_samples_16k: usize,
 }
 
 #[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -694,6 +704,7 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
         }
     };
     let src_sr = capture.src_sr;
+    let dropped_samples = capture.dropped_samples.clone();
     *state.capture.lock() = Some(capture);
 
     show_pill(app);
@@ -705,11 +716,10 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
     let state2 = state.clone();
 
     std::thread::spawn(move || {
-        let mut engine = engine;
+        let engine = engine;
         let mut resampler = Resampler16k::new(src_sr).ok();
         let mut scratch = Vec::with_capacity(8192);
-        let mut resampled = Vec::with_capacity(TARGET_SR);
-        let mut last_interim = Instant::now();
+        let mut utterance_16k = Vec::with_capacity(TARGET_SR * 30);
 
         while !is_recording(&stop_req) {
             let n = audio::drain_into(&mut cons, &mut scratch);
@@ -720,33 +730,51 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
             // Nivel de audio (RMS) para la isla flotante.
             let _ = app2.emit("audio-level", rms(&scratch));
 
-            if let (Some(rs), Some(eng)) = (resampler.as_mut(), engine.as_mut()) {
-                resampled.clear();
-                if rs.push(&scratch, &mut resampled).is_ok() {
-                    // Segmentos durante la grabación = preview (interim). El definitivo se emite al soltar.
-                    for txt in eng.feed(&resampled) {
-                        let _ = app2.emit("transcript", TranscriptEvent { text: txt, interim: true });
-                    }
-                    if last_interim.elapsed() >= Duration::from_millis(250) {
-                        let it = eng.interim();
-                        if !it.is_empty() {
-                            let _ = app2.emit("transcript", TranscriptEvent { text: it, interim: true });
-                        }
-                        last_interim = Instant::now();
-                    }
+            // Capture only: resample and retain the utterance. ASR runs once after release.
+            if let Some(rs) = resampler.as_mut() {
+                if let Err(e) = rs.push(&scratch, &mut utterance_16k) {
+                    eprintln!("[audio] resampling failed: {e}");
                 }
             }
         }
 
-        // Al soltar: finalizar STT (si hay motor) y limpiar el texto.
-        let raw = if let (Some(rs), Some(eng)) = (resampler.as_mut(), engine.as_mut()) {
-            resampled.clear();
-            let _ = rs.flush(&mut resampled);
-            eng.feed(&resampled);
-            eng.finish()
-        } else {
-            String::new()
+        // The producer has stopped before stop_req is published. Drain every queued frame,
+        // then flush the resampler so the decoder receives one complete utterance.
+        if audio::drain_into(&mut cons, &mut scratch) > 0 {
+            if let Some(rs) = resampler.as_mut() {
+                if let Err(e) = rs.push(&scratch, &mut utterance_16k) {
+                    eprintln!("[audio] final resampling failed: {e}");
+                }
+            }
+        }
+        if let Some(rs) = resampler.as_mut() {
+            if let Err(e) = rs.flush(&mut utterance_16k) {
+                eprintln!("[audio] resampler flush failed: {e}");
+            }
+        }
+
+        let dropped_source_samples = dropped_samples.load(Ordering::Relaxed);
+        let dropped_duration_ms = dropped_source_samples as f64 * 1_000.0 / f64::from(src_sr);
+        let capture_stats = AudioCaptureStatsEvent {
+            dropped_source_samples,
+            source_sample_rate: src_sr,
+            dropped_duration_ms,
+            captured_samples_16k: utterance_16k.len(),
         };
+        eprintln!(
+            "[audio] capture complete: dropped_source_samples={}, source_sample_rate={}, dropped_duration_ms={:.2}, captured_samples_16k={}",
+            capture_stats.dropped_source_samples,
+            capture_stats.source_sample_rate,
+            capture_stats.dropped_duration_ms,
+            capture_stats.captured_samples_16k,
+        );
+        let _ = app2.emit("audio-capture-stats", capture_stats);
+
+        // Exactly one full-utterance recognition call; empty captures do not invoke ASR.
+        let raw = engine
+            .as_ref()
+            .map(|eng| eng.transcribe_complete(&utterance_16k))
+            .unwrap_or_default();
         let cleaned = stt::clean_text(&raw);
         let dict = state2.dictionary.lock().clone();
         let dictionary_mode = *state2.dictionary_mode.lock();
@@ -784,7 +812,13 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
                     eprintln!("[inject] {e}");
                 }
             }
-            let _ = app2.emit("transcript", TranscriptEvent { text: final_text, interim: false });
+            let _ = app2.emit(
+                "transcript",
+                TranscriptEvent {
+                    text: final_text,
+                    interim: false,
+                },
+            );
         }
         let _ = app2.emit("state", "idle");
         // Liberar la grabación como ÚLTIMO paso (impide solapar una nueva sesión durante el finalize).
@@ -795,9 +829,13 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
 }
 
 fn stop_session(app: &AppHandle, state: &Arc<AppState>) {
-    // Pedir parada: el hilo verá stop_req y finalizará; libera `recording` al acabar.
+    // Quiesce and drop the producer before publishing EOF to the worker. Once it observes
+    // stop_req, no callback can add more frames while it performs the final ring drain.
+    let capture = state.capture.lock().take();
+    if let Some(capture) = capture {
+        capture.stop();
+    }
     set_recording(&state.stop_req, true);
-    *state.capture.lock() = None;
     hide_pill(app);
 }
 

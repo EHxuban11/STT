@@ -12,6 +12,7 @@ import Settings from "./pages/Settings";
 import Help from "./pages/Help";
 import Pill from "./pages/Pill";
 import Onboarding from "./pages/Onboarding";
+import { IS_DEV_BUILD } from "./lib/build";
 
 function Gate() {
   const onboarded = useStore((s) => s.onboarded);
@@ -33,6 +34,11 @@ function Gate() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
+      {IS_DEV_BUILD && !isPill && (
+        <div className="dev-build-indicator" aria-label="Development build">
+          DEV BUILD
+        </div>
+      )}
       {/* Onboarding de primer arranque (no en la ventana flotante) */}
       {!onboarded && !isPill && <Onboarding />}
     </>

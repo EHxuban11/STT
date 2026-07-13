@@ -44,7 +44,7 @@ export function RecordingPill({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 12, scale: 0.95 }}
       transition={{ type: "spring", stiffness: 400, damping: 28 }}
-      className="flex items-center gap-3 rounded-full bg-zinc-900 px-4 py-2.5 text-white shadow-pill"
+      className="recording-pill-surface flex items-center gap-3 rounded-full bg-zinc-900 px-4 py-2.5 text-white shadow-pill"
     >
       {state === "listening" && (
         <>
