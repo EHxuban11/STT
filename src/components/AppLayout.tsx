@@ -117,6 +117,7 @@ export function AppLayout() {
     });
     invoke("set_inject_mode", { mode: getState().insertMethod });
     invoke("set_dictionary_mode", { mode: getState().dictionaryMode });
+    invoke("set_vocabulary", { terms: getState().vocabulary });
     invoke("set_dictionary", { entries: getState().dictionary });
     invoke("set_cerebras_config", {
       model: getState().cerebras.model,

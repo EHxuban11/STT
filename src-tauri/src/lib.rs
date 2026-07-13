@@ -12,7 +12,7 @@ use audio::{
 };
 use models::{Catalog, ModelKind, ResolvedModel};
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::Ordering;
@@ -62,6 +62,9 @@ struct DictEntry {
     to: String,
 }
 
+const MAX_VOCABULARY_TERMS: usize = 500;
+const MAX_DICTIONARY_ENTRIES: usize = 500;
+
 #[derive(Clone, serde::Serialize)]
 struct MediaTranscriptLine {
     time: f32,
@@ -99,7 +102,9 @@ struct AppState {
     inject_mode: Mutex<InjectMode>,
     dictionary_mode: Mutex<DictionaryMode>,
     cerebras: Mutex<cerebras::Config>,
-    /// Diccionario del usuario: pares (cuando oigas, escribe) aplicados a cada dictado.
+    /// Canonical technical terms used as contextual vocabulary by Cerebras.
+    vocabulary: Mutex<Vec<String>>,
+    /// Optional exact aliases: pairs of (heard as, write as).
     dictionary: Mutex<Vec<(String, String)>>,
     workflows_enabled: Mutex<HashMap<String, bool>>,
 }
@@ -298,14 +303,126 @@ fn set_cerebras_config(
     Ok(())
 }
 
-/// Reemplaza el diccionario del usuario (se aplica a cada dictado antes de insertar).
+#[tauri::command]
+fn set_vocabulary(state: State<'_, Arc<AppState>>, terms: Vec<String>) {
+    *state.vocabulary.lock() = normalize_vocabulary_terms(terms);
+}
+
+fn normalize_vocabulary_terms(terms: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    terms
+        .into_iter()
+        .filter_map(|term| {
+            let normalized = cerebras::normalize_term(&term);
+            let key = normalized.to_lowercase();
+            if normalized.is_empty() || !seen.insert(key) {
+                None
+            } else {
+                Some(normalized)
+            }
+        })
+        .take(MAX_VOCABULARY_TERMS)
+        .collect()
+}
+
+/// Replaces optional exact aliases applied after local speech recognition.
 #[tauri::command]
 fn set_dictionary(state: State<'_, Arc<AppState>>, entries: Vec<DictEntry>) {
-    *state.dictionary.lock() = entries
+    *state.dictionary.lock() = normalize_dictionary_entries(entries);
+}
+
+fn normalize_dictionary_entries(entries: Vec<DictEntry>) -> Vec<(String, String)> {
+    entries
         .into_iter()
-        .filter(|e| !e.from.trim().is_empty())
-        .map(|e| (e.from, e.to))
-        .collect();
+        .filter_map(|e| {
+            let from = cerebras::normalize_term(&e.from);
+            let to = cerebras::normalize_term(&e.to);
+            if from.is_empty() || to.is_empty() {
+                None
+            } else {
+                Some((from, to))
+            }
+        })
+        .take(MAX_DICTIONARY_ENTRIES)
+        .collect()
+}
+
+#[cfg(test)]
+mod dictionary_normalization_tests {
+    use super::*;
+
+    #[test]
+    fn aliases_are_normalized_without_deduplication_or_reordering() {
+        let normalized = normalize_dictionary_entries(vec![
+            DictEntry {
+                from: "  git\t worktree\n".into(),
+                to: "  worktree  ".into(),
+            },
+            DictEntry {
+                from: "git worktree".into(),
+                to: "worktree".into(),
+            },
+            DictEntry {
+                from: "   ".into(),
+                to: "ignored".into(),
+            },
+            DictEntry {
+                from: "ignored".into(),
+                to: "\n\t".into(),
+            },
+        ]);
+
+        assert_eq!(
+            normalized,
+            vec![
+                ("git worktree".into(), "worktree".into()),
+                ("git worktree".into(), "worktree".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn aliases_are_unicode_safe_and_capped_at_five_hundred() {
+        let mut entries = vec![DictEntry {
+            from: "é".repeat(121),
+            to: "canonical".into(),
+        }];
+        entries.extend((1..=MAX_DICTIONARY_ENTRIES).map(|index| DictEntry {
+            from: format!("heard {index}"),
+            to: format!("write {index}"),
+        }));
+
+        let normalized = normalize_dictionary_entries(entries);
+
+        assert_eq!(normalized.len(), MAX_DICTIONARY_ENTRIES);
+        assert_eq!(normalized[0].0.chars().count(), 120);
+        assert_eq!(normalized[1], ("heard 1".into(), "write 1".into()));
+        assert_eq!(
+            normalized[MAX_DICTIONARY_ENTRIES - 1],
+            ("heard 499".into(), "write 499".into())
+        );
+    }
+
+    #[test]
+    fn vocabulary_is_normalized_and_deduplicated_case_insensitively() {
+        let boundary_space = format!("{} ignored", "a".repeat(119));
+        let normalized = normalize_vocabulary_terms(vec![
+            "  RF-DETR\n".into(),
+            "rf-detr".into(),
+            "Libre\t YOLO".into(),
+            boundary_space,
+            "   ".into(),
+        ]);
+
+        assert_eq!(
+            normalized,
+            vec![
+                "RF-DETR".to_string(),
+                "Libre YOLO".to_string(),
+                "a".repeat(119),
+            ]
+        );
+    }
 }
 
 #[tauri::command]
@@ -824,6 +941,7 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
             .unwrap_or_default();
         let cleaned = stt::clean_text(&raw);
         let dict = state2.dictionary.lock().clone();
+        let vocabulary = state2.vocabulary.lock().clone();
         let dictionary_mode = *state2.dictionary_mode.lock();
         // Workflows use deterministic local text. In Cerebras mode that is the untouched cleaned
         // ASR result, so neither a cloud response nor an unconditional dictionary replacement can
@@ -860,9 +978,9 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
             };
             if !workflow_handled && dictionary_mode == DictionaryMode::Cerebras {
                 let config = state2.cerebras.lock().clone();
-                // Give Cerebras the untouched cleaned ASR result so it can decide whether an
-                // exact dictionary phrase is actually the intended term in this context.
-                match cerebras::cleanup_transcription(&config, &cleaned, &dict) {
+                // Give Cerebras the untouched cleaned ASR result so it can resolve phonetic
+                // variants from preferred vocabulary without forcing an unconditional match.
+                match cerebras::cleanup_transcription(&config, &cleaned, &vocabulary, &dict) {
                     Ok(corrected) => final_text = corrected,
                     Err(e) => {
                         eprintln!("[cerebras] {e}");
@@ -1002,6 +1120,7 @@ pub fn run() {
             test_cerebras_connection,
             clear_cerebras_api_key,
             set_cerebras_config,
+            set_vocabulary,
             set_dictionary,
             set_workflows_enabled,
             start_recording,
@@ -1038,6 +1157,7 @@ pub fn run() {
                 inject_mode: Mutex::new(InjectMode::Paste),
                 dictionary_mode: Mutex::new(DictionaryMode::Postprocess),
                 cerebras: Mutex::new(cerebras::Config::default()),
+                vocabulary: Mutex::new(Vec::new()),
                 dictionary: Mutex::new(Vec::new()),
                 workflows_enabled: Mutex::new(HashMap::new()),
             });

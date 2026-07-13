@@ -59,14 +59,16 @@ function InsertMethodSelect() {
 export default function Settings() {
   const location = useLocation();
   const [section, setSection] = useState<SettingsSection>(() => {
-    const requested = new URLSearchParams(location.search).get("section");
+    const rawSection = new URLSearchParams(location.search).get("section");
+    const requested = rawSection === "Dictionary" ? "Vocabulary" : rawSection;
     return SETTINGS_SECTIONS.includes(requested as SettingsSection)
       ? (requested as SettingsSection)
       : "Account";
   });
 
   useEffect(() => {
-    const requested = new URLSearchParams(location.search).get("section");
+    const rawSection = new URLSearchParams(location.search).get("section");
+    const requested = rawSection === "Dictionary" ? "Vocabulary" : rawSection;
     if (SETTINGS_SECTIONS.includes(requested as SettingsSection)) {
       setSection(requested as SettingsSection);
     }
@@ -99,7 +101,7 @@ export default function Settings() {
             </button>
           ))}
         </nav>
-        <div className="px-3 pt-2 text-xs text-faint">v0.1.9</div>
+        <div className="px-3 pt-2 text-xs text-faint">v0.1.14</div>
       </div>
 
       {/* Contenido */}
@@ -112,7 +114,7 @@ export default function Settings() {
           {section === "General" && <GeneralSection />}
           {section === "Audio" && <AudioSection />}
           {section === "Language" && <LanguageSection />}
-          {section === "Dictionary" && <DictionarySection />}
+          {section === "Vocabulary" && <DictionarySection />}
           {section === "Recording" && <RecordingSection />}
           {section === "Shortcuts" && <ShortcutsSection />}
           {section === "Permissions" && <PermissionsSection />}
@@ -233,7 +235,7 @@ function DictionaryModeSelect() {
       onChange={(event) => change(event.target.value as DictionaryMode)}
       className="rounded-xl border border-line bg-app px-3 py-2 text-sm font-medium text-ink outline-none focus:border-brand"
     >
-      <option value="postprocess">Exact replacements</option>
+      <option value="postprocess">Exact aliases</option>
       <option value="cerebras">Cerebras AI</option>
       <option value="off">Off</option>
     </select>
@@ -373,10 +375,10 @@ function CerebrasConfigCard() {
         <div>
           <div className="text-[15px] font-semibold text-ink">Cerebras AI correction</div>
           <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted">
-            For live dictation, the local transcription, your domain context, and up to the first
-            200 non-empty dictionary entries are sent to Cerebras. If correction fails, the app
-            uses the local transcription. File transcription remains local without dictionary
-            correction.
+            For live dictation, the local transcription, your domain context, up to 500 vocabulary
+            terms, and only the first 200 exact aliases are sent to Cerebras. If correction fails,
+            the app uses the local transcription. File transcription remains local without
+            vocabulary correction.
           </p>
         </div>
         <span
@@ -492,29 +494,30 @@ function CerebrasConfigCard() {
 }
 
 function DictionarySection() {
+  const vocabulary = useStore((s) => s.vocabulary);
   const dictionary = useStore((s) => s.dictionary);
   const mode = useStore((s) => s.dictionaryMode);
   const modeHelp =
     mode === "cerebras"
-      ? "For live dictation, Cerebras reviews the local transcript using your dictionary and domain context. This sends those contents to Cerebras."
+      ? "For live dictation, Cerebras reviews the local transcript using your vocabulary, domain context, and only the first 200 exact aliases. This sends those contents to Cerebras."
       : mode === "postprocess"
-        ? "Exact replacements run locally after speech recognition. They only match the text you specify."
-        : "Dictionary processing is disabled, so the raw local speech-model result is used.";
+        ? "Exact aliases run locally after speech recognition. Vocabulary terms remain saved for Cerebras AI mode."
+        : "Vocabulary processing is disabled, so the raw local speech-model result is used. Vocabulary and aliases remain saved.";
 
   return (
     <div className="space-y-4">
       <Card>
         <SettingRow
-          label="Dictionary mode"
+          label="Processing mode"
           help={modeHelp}
           control={<DictionaryModeSelect />}
         />
         <SettingRow
-          label="Vocabulary"
-          help={`${dictionary.length} saved ${dictionary.length === 1 ? "entry" : "entries"}.`}
+          label="Vocabulary and aliases"
+          help={`${vocabulary.length} vocabulary ${vocabulary.length === 1 ? "term" : "terms"} and ${dictionary.length} exact ${dictionary.length === 1 ? "alias" : "aliases"} saved.`}
           control={
             <Link to="/dictionary" className="btn-secondary px-3.5 py-2 text-[13px]">
-              Edit Dictionary
+              Edit Vocabulary
             </Link>
           }
         />
@@ -605,7 +608,7 @@ function SyncSection() {
   return (
     <div>
       <p className="mb-4 text-sm text-muted">
-        Sync your dictionary, workflows, preferences, hotkeys, and transcription data across devices.
+        Sync your vocabulary, aliases, workflows, preferences, hotkeys, and transcription data across devices.
         Your data is stored in your own cloud storage folder, so it never leaves your control.
       </p>
       <Card>

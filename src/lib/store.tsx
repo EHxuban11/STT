@@ -32,6 +32,9 @@ export interface AppState {
     removeFillers: boolean;
   };
   workflowsEnabled: Record<string, boolean>;
+  /** Canonical technical terms used as contextual vocabulary by Cerebras. */
+  vocabulary: string[];
+  /** Optional exact aliases: "heard as" -> "write as". */
   dictionary: DictEntry[];
   dictionaryMode: DictionaryMode;
   cerebras: CerebrasSettings;
@@ -69,6 +72,7 @@ const DEFAULT: AppState = {
     removeFillers: true,
   },
   workflowsEnabled: {},
+  vocabulary: [],
   dictionary: [],
   dictionaryMode: "postprocess",
   cerebras: {
@@ -95,6 +99,8 @@ const RECORDING_POS: RecordingPos[] = ["top", "bottom", "off"];
 const DICTIONARY_MODES: DictionaryMode[] = ["off", "postprocess", "cerebras"];
 const CEREBRAS_MODELS: CerebrasModel[] = ["gpt-oss-120b", "zai-glm-4.7", "gemma-4-31b"];
 const INSERT_METHODS: AppState["insertMethod"][] = ["paste", "type"];
+const MAX_CUSTOM_ENTRIES = 500;
+const MAX_CUSTOM_TEXT_CODE_POINTS = 120;
 const RECORDING_STATES: NonNullable<AppState["recording"]>[] = [
   "idle",
   "listening",
@@ -129,16 +135,41 @@ function workflowMap(value: unknown): Record<string, boolean> {
   );
 }
 
+function normalizeCustomText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const collapsed = value.replace(/\s+/g, " ").trim();
+  return Array.from(collapsed)
+    .slice(0, MAX_CUSTOM_TEXT_CODE_POINTS)
+    .join("")
+    .trimEnd();
+}
+
 function dictEntries(value: unknown): DictEntry[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter(isRecord)
     .map((entry) => ({
-      from: stringOr(entry.from, "").trim(),
-      to: stringOr(entry.to, "").trim(),
+      from: normalizeCustomText(entry.from),
+      to: normalizeCustomText(entry.to),
     }))
     .filter((entry) => entry.from && entry.to)
-    .slice(0, 500);
+    .slice(0, MAX_CUSTOM_ENTRIES);
+}
+
+function vocabularyTerms(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const terms: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const term = normalizeCustomText(item);
+    const key = term.toLowerCase();
+    if (!term || seen.has(key)) continue;
+    seen.add(key);
+    terms.push(term);
+    if (terms.length === MAX_CUSTOM_ENTRIES) break;
+  }
+  return terms;
 }
 
 function transcriptionEntries(value: unknown): Transcription[] {
@@ -170,6 +201,7 @@ function normalizeState(value: unknown): AppState {
   const general = isRecord(value.general) ? value.general : {};
   const cerebras = isRecord(value.cerebras) ? value.cerebras : {};
   const context = stringOr(cerebras.context, DEFAULT.cerebras.context).trim().slice(0, 4000);
+  const dictionary = dictEntries(value.dictionary);
   const loaded: AppState = {
     ...DEFAULT,
     selectedModelId: stringOr(value.selectedModelId, DEFAULT.selectedModelId),
@@ -186,7 +218,10 @@ function normalizeState(value: unknown): AppState {
       removeFillers: boolOr(general.removeFillers, DEFAULT.general.removeFillers),
     },
     workflowsEnabled: workflowMap(value.workflowsEnabled),
-    dictionary: dictEntries(value.dictionary),
+    vocabulary: Array.isArray(value.vocabulary)
+      ? vocabularyTerms(value.vocabulary)
+      : vocabularyTerms(dictionary.map((entry) => entry.to)),
+    dictionary,
     dictionaryMode: enumOr(value.dictionaryMode, DICTIONARY_MODES, DEFAULT.dictionaryMode),
     cerebras: {
       model: enumOr(cerebras.model, CEREBRAS_MODELS, DEFAULT.cerebras.model),
@@ -275,8 +310,16 @@ export function setInstalled(ids: string[]) {
 
 /** Guarda el diccionario y lo empuja al backend (que lo aplica a cada dictado). */
 export function saveDictionary(entries: DictEntry[]) {
-  setState({ dictionary: entries });
-  invoke("set_dictionary", { entries });
+  const dictionary = dictEntries(entries);
+  setState({ dictionary });
+  invoke("set_dictionary", { entries: dictionary });
+}
+
+/** Saves canonical vocabulary terms and synchronizes them with the native backend. */
+export function saveVocabulary(terms: string[]) {
+  const vocabulary = vocabularyTerms(terms);
+  setState({ vocabulary });
+  invoke("set_vocabulary", { terms: vocabulary });
 }
 
 /** Cambia cómo se aplica el diccionario del usuario. */

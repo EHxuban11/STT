@@ -49,7 +49,7 @@ export const SETTINGS_SECTIONS = [
   "General",
   "Audio",
   "Language",
-  "Dictionary",
+  "Vocabulary",
   "Recording",
   "Shortcuts",
   "Permissions",

@@ -18,7 +18,7 @@ const mainNav = [
   { to: "/insights", label: "Insights", icon: BarChart3 },
   { to: "/transcribe", label: "Transcribe", icon: Mic },
   { to: "/speech-models", label: "Speech models", icon: Boxes },
-  { to: "/dictionary", label: "Dictionary", icon: BookOpen },
+  { to: "/dictionary", label: "Vocabulary", icon: BookOpen },
   { to: "/workflows", label: "Workflows", icon: Workflow },
 ];
 
