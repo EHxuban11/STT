@@ -15,6 +15,9 @@ import {
   setState,
   saveDictionaryMode,
   saveCerebrasSettings,
+  saveInputDevice,
+  listInputDevices,
+  defaultInputName,
   showToast,
 } from "@/lib/store";
 import type { CerebrasModel, DictionaryMode } from "@/lib/store";
@@ -101,7 +104,7 @@ export default function Settings() {
             </button>
           ))}
         </nav>
-        <div className="px-3 pt-2 text-xs text-faint">v0.1.17</div>
+        <div className="px-3 pt-2 text-xs text-faint">v0.1.18</div>
       </div>
 
       {/* Contenido */}
@@ -195,15 +198,84 @@ function GeneralSection() {
   );
 }
 
+const SYSTEM_DEFAULT = "__default__";
+
 function AudioSection() {
+  const inputDevice = useStore((s) => s.inputDevice);
+  const [devices, setDevices] = useState<string[]>([]);
+  const [defaultName, setDefaultName] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [list, def] = await Promise.all([
+        listInputDevices(),
+        defaultInputName(),
+      ]);
+      setDevices(list);
+      setDefaultName(def);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  // A saved device that is no longer present (e.g. an unplugged mic) still shows so
+  // the user understands why capture fell back to the default, and can re-pick.
+  const missing = inputDevice !== null && !devices.includes(inputDevice);
+
   return (
     <div className="rounded-2xl border border-line p-5">
       <div className="font-semibold text-ink">Microphone</div>
       <div className="text-sm text-muted">Select your audio input device</div>
       <div className="mt-3 flex items-center gap-3">
-        <Dropdown value="Default microphone / Same as system" className="flex-1" />
-        <button className="btn-primary px-4 py-2 text-[13px]">Refresh</button>
+        <select
+          value={inputDevice ?? SYSTEM_DEFAULT}
+          onChange={(event) =>
+            saveInputDevice(
+              event.target.value === SYSTEM_DEFAULT ? null : event.target.value
+            )
+          }
+          className="flex-1 truncate rounded-xl border border-line bg-app px-3 py-2 text-sm font-medium text-ink hover:bg-card focus:border-brand focus:outline-none"
+        >
+          <option value={SYSTEM_DEFAULT}>
+            {defaultName
+              ? `Default microphone (${defaultName})`
+              : "Default microphone / Same as system"}
+          </option>
+          {devices.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+          {missing && (
+            <option value={inputDevice as string}>
+              {inputDevice} (not connected)
+            </option>
+          )}
+        </select>
+        <button
+          onClick={() => void refresh()}
+          disabled={loading}
+          className="btn-primary px-4 py-2 text-[13px] disabled:opacity-60"
+        >
+          {loading ? "..." : "Refresh"}
+        </button>
       </div>
+      {missing && (
+        <p className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+          Your saved microphone isn't connected right now, so the system default is
+          used until it's back.
+        </p>
+      )}
+      <p className="mt-2 text-xs text-faint">
+        On a Bluetooth headset, pick the "Hands-Free" entry for the working mic. If
+        dictation captures no sound, try a wired mic or your laptop mic here.
+      </p>
     </div>
   );
 }

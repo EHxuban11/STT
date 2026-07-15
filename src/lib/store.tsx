@@ -43,6 +43,8 @@ export interface AppState {
   transcriptions: Transcription[];
   installed: string[]; // ids de BACKEND de modelos descargados (p.ej. "parakeet-tdt-0.6b-v2-int8")
   activeModelId: string; // id de BACKEND del modelo activo (el que usa el dictado)
+  /** Preferred input device name; null follows the system default microphone. */
+  inputDevice: string | null;
   insertMethod: "paste" | "type"; // método de inserción de texto
   onboarded: boolean; // si el usuario completó el onboarding inicial
   // Estado efímero (no se persiste)
@@ -99,6 +101,7 @@ const DEFAULT: AppState = {
   transcriptions: [],
   installed: [], // se rellena desde el backend (list_installed_models); en navegador, por descargas simuladas
   activeModelId: "parakeet-tdt-0.6b-v3-int8",
+  inputDevice: null,
   insertMethod: "paste",
   onboarded: false,
   downloads: {},
@@ -295,6 +298,10 @@ function normalizeState(value: unknown): AppState {
     transcriptions: transcriptionEntries(value.transcriptions),
     installed: stringArray(value.installed),
     activeModelId: stringOr(value.activeModelId, DEFAULT.activeModelId),
+    inputDevice:
+      typeof value.inputDevice === "string" && value.inputDevice.trim()
+        ? value.inputDevice
+        : null,
     insertMethod: enumOr(value.insertMethod, INSERT_METHODS, DEFAULT.insertMethod),
     onboarded: boolOr(value.onboarded, DEFAULT.onboarded),
     downloads: {},
@@ -385,6 +392,31 @@ export function saveVocabulary(terms: string[]) {
   const vocabulary = vocabularyTerms(terms);
   setState({ vocabulary });
   invoke("set_vocabulary", { terms: vocabulary });
+}
+
+/** Lists the input devices the backend can capture from. */
+export async function listInputDevices(): Promise<string[]> {
+  try {
+    return (await invoke<string[]>("list_input_devices")) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Name the backend currently treats as the system default microphone. */
+export async function defaultInputName(): Promise<string | null> {
+  try {
+    return (await invoke<string | null>("default_input_name")) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Chooses which microphone to capture from. null follows the system default. */
+export function saveInputDevice(name: string | null) {
+  const value = name && name.trim() ? name : null;
+  setState({ inputDevice: value });
+  invoke("set_input_device", { name: value });
 }
 
 /** Enables real decoder-time contextual biasing after the native backend is ready. */

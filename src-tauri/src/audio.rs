@@ -38,11 +38,45 @@ fn push_or_count_drop(
 }
 
 /// Construye un stream de entrada por defecto que mezcla a mono f32 y empuja a `prod`.
-pub fn start_capture(mut prod: impl Producer<Item = f32> + Send + 'static) -> Result<Capture> {
+/// Names of every available input device, for the microphone picker in Settings.
+pub fn list_input_devices() -> Vec<String> {
     let host = cpal::default_host();
-    let device = host
+    match host.input_devices() {
+        Ok(devices) => devices.filter_map(|d| d.name().ok()).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Name of the current system default input device, shown as the "(default)" option.
+pub fn default_input_name() -> Option<String> {
+    cpal::default_host()
         .default_input_device()
+        .and_then(|d| d.name().ok())
+}
+
+/// Opens `device_name` if given and still present, otherwise the system default.
+/// A stale saved device (e.g. an unplugged mic) transparently falls back to default
+/// instead of failing the whole capture.
+pub fn start_capture(
+    prod: impl Producer<Item = f32> + Send + 'static,
+    device_name: Option<&str>,
+) -> Result<Capture> {
+    let host = cpal::default_host();
+    let device = device_name
+        .and_then(|name| {
+            host.input_devices()
+                .ok()?
+                .find(|d| d.name().map(|n| n == name).unwrap_or(false))
+        })
+        .or_else(|| host.default_input_device())
         .ok_or_else(|| anyhow!("no default input device"))?;
+    start_capture_on(device, prod)
+}
+
+fn start_capture_on(
+    device: cpal::Device,
+    mut prod: impl Producer<Item = f32> + Send + 'static,
+) -> Result<Capture> {
     let supported = device.default_input_config()?;
     let src_sr = supported.sample_rate().0;
     let channels = supported.channels() as usize;

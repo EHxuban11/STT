@@ -119,6 +119,8 @@ struct AppState {
     /// "Se ha pedido parar la captura" (lo activa stop_session; el hilo lo observa).
     stop_req: RecordingFlag,
     capture: Mutex<Option<Capture>>,
+    /// Preferred input device name; `None` follows the system default microphone.
+    input_device: Mutex<Option<String>>,
     /// Motor STT cacheado: se carga una vez y se reutiliza entre dictados.
     engine: Mutex<Option<stt::Engine>>,
     primary_id: Mutex<String>,
@@ -330,6 +332,27 @@ fn set_cerebras_config(
 #[tauri::command]
 fn set_vocabulary(state: State<'_, Arc<AppState>>, terms: Vec<String>) {
     *state.vocabulary.lock() = normalize_vocabulary_terms(terms);
+}
+
+/// Every available input device name, for the microphone picker in Settings.
+#[tauri::command]
+fn list_input_devices() -> Vec<String> {
+    audio::list_input_devices()
+}
+
+/// Current system default input device name, so the picker can label "(default)".
+#[tauri::command]
+fn default_input_name() -> Option<String> {
+    audio::default_input_name()
+}
+
+/// Chooses the microphone to capture from. `None`/empty follows the system default.
+#[tauri::command]
+fn set_input_device(state: State<'_, Arc<AppState>>, name: Option<String>) {
+    *state.input_device.lock() = name.and_then(|n| {
+        let trimmed = n.trim().to_string();
+        (!trimmed.is_empty()).then_some(trimmed)
+    });
 }
 
 #[tauri::command]
@@ -1033,7 +1056,8 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
     }
 
     let (prod, mut cons) = make_ring();
-    let capture = match start_capture(prod) {
+    let selected_device = state.input_device.lock().clone();
+    let capture = match start_capture(prod, selected_device.as_deref()) {
         Ok(c) => c,
         Err(e) => {
             *state.engine.lock() = engine; // devolver el motor a la caché
@@ -1110,6 +1134,27 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
             capture_stats.captured_samples_16k,
         );
         let _ = app2.emit("audio-capture-stats", capture_stats);
+
+        // A held dictation that produced no audible signal almost always means the
+        // selected input is dead (e.g. a Bluetooth headset stuck in A2DP with no live
+        // mic). Tell the user on the island instead of silently returning nothing, so
+        // they don't talk for a minute on faith. Very short taps are ignored so an
+        // accidental key press does not nag.
+        const SILENCE_PEAK: f32 = 0.006; // ~ -44 dBFS; real speech peaks well above this
+        let min_silence_samples = TARGET_SR * 2 / 5; // 0.4 s at 16 kHz
+        let peak = utterance_16k
+            .iter()
+            .fold(0.0_f32, |max, &sample| max.max(sample.abs()));
+        if utterance_16k.len() >= min_silence_samples && peak < SILENCE_PEAK {
+            eprintln!("[audio] captured near-silence (peak={peak:.5}); mic likely not delivering audio");
+            if *state2.primary_id.lock() == session_model_id {
+                *state2.engine.lock() = engine; // devolver el motor a la caché
+            }
+            let _ = app2.emit("state", "idle");
+            set_recording(&recording, false);
+            show_pill_message(&app2, "No sound from your mic");
+            return;
+        }
 
         // Exactly one full-utterance recognition call; empty captures do not invoke ASR.
         let vocabulary = state2.vocabulary.lock().clone();
@@ -1363,6 +1408,9 @@ pub fn run() {
             clear_cerebras_api_key,
             set_cerebras_config,
             set_vocabulary,
+            list_input_devices,
+            default_input_name,
+            set_input_device,
             set_decoder_vocabulary_enabled,
             set_dictionary,
             set_workflows_enabled,
@@ -1392,6 +1440,7 @@ pub fn run() {
                 recording: flag(false),
                 stop_req: flag(false),
                 capture: Mutex::new(None),
+                input_device: Mutex::new(None),
                 engine: Mutex::new(None),
                 primary_id: Mutex::new(primary_id),
                 vad_id: Mutex::new("silero-vad".into()),
