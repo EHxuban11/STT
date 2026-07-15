@@ -18,16 +18,42 @@ use std::process::Command;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
+use std::sync::atomic::AtomicBool;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, State,
 };
 
+/// True while the recording island should be on screen. A background watcher
+/// keeps re-asserting the pill's topmost z-order while this holds, so the island
+/// cannot get buried under a window that grabs the top of the stack afterwards
+/// (e.g. a terminal raised to front). Setting `always_on_top` once at show-time
+/// is not enough on Windows: it only re-raises the window that single moment.
+static PILL_VISIBLE: AtomicBool = AtomicBool::new(false);
+
 #[derive(Clone, serde::Serialize)]
 struct TranscriptEvent {
     text: String,
     interim: bool,
+    stages: Vec<TranscriptStage>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum TranscriptStageKind {
+    Greedy,
+    DecoderVocabulary,
+    Rewrite,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct TranscriptStage {
+    kind: TranscriptStageKind,
+    label: String,
+    text: String,
+    /// Wall-clock time this stage took to produce its text, in milliseconds.
+    ms: u64,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -96,14 +122,15 @@ struct AppState {
     /// Motor STT cacheado: se carga una vez y se reutiliza entre dictados.
     engine: Mutex<Option<stt::Engine>>,
     primary_id: Mutex<String>,
-    fallback_id: Mutex<Option<String>>,
     vad_id: Mutex<String>,
     provider: Mutex<String>,
     inject_mode: Mutex<InjectMode>,
     dictionary_mode: Mutex<DictionaryMode>,
     cerebras: Mutex<cerebras::Config>,
-    /// Canonical technical terms used as contextual vocabulary by Cerebras.
+    /// Canonical technical terms used by Parakeet contextual biasing and Cerebras.
     vocabulary: Mutex<Vec<String>>,
+    /// Opt-in decoder-time contextual biasing for Parakeet transducers.
+    decoder_vocabulary_enabled: Mutex<bool>,
     /// Optional exact aliases: pairs of (heard as, write as).
     dictionary: Mutex<Vec<(String, String)>>,
     workflows_enabled: Mutex<HashMap<String, bool>>,
@@ -140,9 +167,10 @@ fn initial_primary_id(catalog: &Catalog, root: Option<&Path>) -> String {
 }
 
 fn has_installed_speech_model(catalog: &Catalog, root: &Path) -> bool {
-    catalog.models.iter().any(|entry| {
-        entry.kind != ModelKind::Vad && models::resolve(root, entry).is_some()
-    })
+    catalog
+        .models
+        .iter()
+        .any(|entry| entry.kind != ModelKind::Vad && models::resolve(root, entry).is_some())
 }
 
 #[tauri::command]
@@ -275,21 +303,17 @@ async fn save_cerebras_api_key(api_key: String) -> Result<cerebras::KeyStatus, S
 
 #[tauri::command]
 async fn test_cerebras_connection() -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        cerebras::test_connection().map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|_| "Cerebras connection test was interrupted".to_string())??;
+    tauri::async_runtime::spawn_blocking(|| cerebras::test_connection().map_err(|e| e.to_string()))
+        .await
+        .map_err(|_| "Cerebras connection test was interrupted".to_string())??;
     Ok("Connected to Cerebras".to_string())
 }
 
 #[tauri::command]
 async fn clear_cerebras_api_key() -> Result<cerebras::KeyStatus, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        cerebras::clear_api_key().map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|_| "Cerebras key removal was interrupted".to_string())?
+    tauri::async_runtime::spawn_blocking(|| cerebras::clear_api_key().map_err(|e| e.to_string()))
+        .await
+        .map_err(|_| "Cerebras key removal was interrupted".to_string())?
 }
 
 #[tauri::command]
@@ -306,6 +330,51 @@ fn set_cerebras_config(
 #[tauri::command]
 fn set_vocabulary(state: State<'_, Arc<AppState>>, terms: Vec<String>) {
     *state.vocabulary.lock() = normalize_vocabulary_terms(terms);
+}
+
+#[tauri::command]
+async fn set_decoder_vocabulary_enabled(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    enabled: bool,
+) -> Result<(), String> {
+    let state2: Arc<AppState> = (*state).clone();
+    if enabled {
+        let primary_id = state2.primary_id.lock().clone();
+        let entry = state2
+            .catalog
+            .get(&primary_id)
+            .ok_or_else(|| format!("unknown model id: {primary_id}"))?
+            .clone();
+        if entry.kind != ModelKind::Transducer || entry.contextual_biasing.is_none() {
+            return Err("Decoder vocabulary boosting requires Parakeet V2 or V3.".into());
+        }
+        let root = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("models");
+        if models::resolve(&root, &entry).is_none() {
+            return Err("Download and select Parakeet V2 or V3 first.".into());
+        }
+        models::ensure_contextual_biasing_vocab(&root, &entry)
+            .await
+            .map_err(|e| format!("Could not install Parakeet tokenizer vocabulary: {e}"))?;
+    }
+
+    *state2.decoder_vocabulary_enabled.lock() = enabled;
+    *state2.engine.lock() = None;
+
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        if let Ok(root) = app2.path().app_data_dir().map(|d| d.join("models")) {
+            if let Some(engine) = build_engine(&state2, &root) {
+                *state2.engine.lock() = Some(engine);
+                eprintln!("[stt] engine re-warmed after decoder vocabulary change");
+            }
+        }
+    });
+    Ok(())
 }
 
 fn normalize_vocabulary_terms(terms: Vec<String>) -> Vec<String> {
@@ -547,20 +616,36 @@ fn run_workflow_if_enabled(
     let enabled = state.workflows_enabled.lock().clone();
 
     let url_workflows = [
-        ("ask chat gpt", "https://chatgpt.com/", "https://chatgpt.com/?q="),
-        ("ask claude", "https://claude.ai/new", "https://claude.ai/new?q="),
+        (
+            "ask chat gpt",
+            "https://chatgpt.com/",
+            "https://chatgpt.com/?q=",
+        ),
+        (
+            "ask claude",
+            "https://claude.ai/new",
+            "https://claude.ai/new?q=",
+        ),
         (
             "ask perplexity",
             "https://www.perplexity.ai/",
             "https://www.perplexity.ai/search?q=",
         ),
-        ("duck duck go", "https://duckduckgo.com/", "https://duckduckgo.com/?q="),
+        (
+            "duck duck go",
+            "https://duckduckgo.com/",
+            "https://duckduckgo.com/?q=",
+        ),
         (
             "youtube",
             "https://www.youtube.com/",
             "https://www.youtube.com/results?search_query=",
         ),
-        ("google", "https://www.google.com/", "https://www.google.com/search?q="),
+        (
+            "google",
+            "https://www.google.com/",
+            "https://www.google.com/search?q=",
+        ),
     ];
 
     for (trigger, home_url, query_url) in url_workflows {
@@ -613,7 +698,11 @@ fn stop_recording(app: AppHandle, state: State<'_, Arc<AppState>>) {
 /// Cambia el modelo de voz activo: actualiza el id primario, invalida el motor cacheado
 /// y lo re-calienta en segundo plano con el nuevo modelo.
 #[tauri::command]
-fn set_active_model(app: AppHandle, state: State<'_, Arc<AppState>>, id: String) -> Result<(), String> {
+async fn set_active_model(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<(), String> {
     if state.catalog.get(&id).is_none() {
         return Err(format!("unknown model id: {id}"));
     }
@@ -622,6 +711,21 @@ fn set_active_model(app: AppHandle, state: State<'_, Arc<AppState>>, id: String)
     *state.engine.lock() = None; // invalidar caché (el actual es del modelo anterior)
 
     let state2: Arc<AppState> = (*state).clone();
+    if *state2.decoder_vocabulary_enabled.lock() {
+        if let Some(entry) = state2.catalog.get(&id).cloned() {
+            if let Err(error) = models::ensure_contextual_biasing_vocab(
+                &app.path()
+                    .app_data_dir()
+                    .map_err(|e| e.to_string())?
+                    .join("models"),
+                &entry,
+            )
+            .await
+            {
+                eprintln!("[stt] contextual vocabulary unavailable for {id}: {error}");
+            }
+        }
+    }
     let app2 = app.clone();
     let target_id = id.clone();
     std::thread::spawn(move || {
@@ -643,7 +747,11 @@ async fn download_model(
     state: State<'_, Arc<AppState>>,
     id: String,
 ) -> Result<(), String> {
-    let root = app.path().app_data_dir().map_err(|e| e.to_string())?.join("models");
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("models");
     let entry = state.catalog.get(&id).ok_or("unknown model id")?.clone();
     let app2 = app.clone();
     let progress_id = id.clone();
@@ -655,6 +763,10 @@ async fn download_model(
     })
     .await
     .map_err(|e| e.to_string())?;
+
+    if let Err(error) = models::ensure_contextual_biasing_vocab(&root, &entry).await {
+        eprintln!("[stt] optional contextual vocabulary download failed for {id}: {error}");
+    }
 
     let vad_id = state.vad_id.lock().clone();
     if id != vad_id {
@@ -711,11 +823,35 @@ fn transcribe_media_file_blocking(
         .catalog
         .get(&primary_id)
         .ok_or_else(|| anyhow::anyhow!("Unknown active speech model"))?;
-    let model = models::resolve(root, model_entry)
-        .ok_or_else(|| anyhow::anyhow!("Download the active speech model before transcribing files"))?;
-    let recognizer = stt::build_recognizer(&model, &provider)?;
+    let model = models::resolve(root, model_entry).ok_or_else(|| {
+        anyhow::anyhow!("Download the active speech model before transcribing files")
+    })?;
+    let contextual_biasing_requested =
+        *state.decoder_vocabulary_enabled.lock() && stt::supports_contextual_biasing(&model);
+    let (recognizer, contextual_biasing) = stt::build_recognizer_with_context_fallback(
+        &model,
+        &provider,
+        contextual_biasing_requested,
+    )?;
     let dict = state.dictionary.lock().clone();
     let dictionary_mode = *state.dictionary_mode.lock();
+    let vocabulary = state.vocabulary.lock().clone();
+    let contextual_phrases = contextual_biasing
+        .then(|| stt::contextual_phrases(&vocabulary))
+        .flatten();
+    let contextual_vad = contextual_biasing
+        .then(|| {
+            let vad_id = state.vad_id.lock().clone();
+            state
+                .catalog
+                .get(&vad_id)
+                .and_then(|entry| models::resolve(root, entry))
+                .and_then(|resolved| match resolved {
+                    ResolvedModel::Vad { model } => stt::build_vad(&model.to_string_lossy()).ok(),
+                    _ => None,
+                })
+        })
+        .flatten();
 
     let sample_rate = stt::SAMPLE_RATE as usize;
     let chunk_len = sample_rate * 12;
@@ -725,7 +861,13 @@ fn transcribe_media_file_blocking(
         if chunk.len() < sample_rate / 2 {
             continue;
         }
-        let raw = stt::transcribe(&recognizer, chunk);
+        if contextual_vad
+            .as_ref()
+            .is_some_and(|vad| !stt::contains_speech(vad, chunk))
+        {
+            continue;
+        }
+        let raw = stt::transcribe(&recognizer, chunk, contextual_phrases.as_deref());
         let cleaned = stt::clean_text(&raw);
         let text = apply_dictionary_for_mode(&cleaned, &dict, dictionary_mode);
         if !text.trim().is_empty() {
@@ -758,17 +900,36 @@ fn show_main(app: &AppHandle) {
 
 fn show_pill(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("pill") {
-        // Re-afirmar always-on-top al mostrar: en Windows la isla puede perder el
-        // nivel "topmost" y quedar tapada por otras ventanas (p. ej. PowerShell).
-        let _ = w.set_always_on_top(true);
+        // Mostrar primero y luego re-afirmar el z-order topmost, para que la isla
+        // quede por encima de la ventana activa (p. ej. PowerShell). El watcher de
+        // `spawn_pill_topmost_watcher` lo mantiene arriba mientras siga grabando.
         let _ = w.show();
+        let _ = w.set_always_on_top(true);
     }
+    PILL_VISIBLE.store(true, Ordering::Relaxed);
 }
 
 fn hide_pill(app: &AppHandle) {
+    PILL_VISIBLE.store(false, Ordering::Relaxed);
     if let Some(w) = app.get_webview_window("pill") {
         let _ = w.hide();
     }
+}
+
+/// Keeps the recording island pinned above every other window while it is shown.
+/// On Windows a single `set_always_on_top(true)` only re-raises the pill at that
+/// instant; a window focused afterwards can still cover it. Re-asserting the
+/// topmost z-order on a short interval reclaims the top of the stack without
+/// stealing focus (SWP_NOACTIVATE) and without touching the window while hidden.
+fn spawn_pill_topmost_watcher(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(600));
+        if PILL_VISIBLE.load(Ordering::Relaxed) {
+            if let Some(w) = app.get_webview_window("pill") {
+                let _ = w.set_always_on_top(true);
+            }
+        }
+    });
 }
 
 /// Muestra la isla con un mensaje breve (p. ej. "No microphone detected") y la
@@ -799,24 +960,40 @@ fn build_engine(state: &Arc<AppState>, root: &Path) -> Option<stt::Engine> {
     build_engine_for_primary(state, root, &primary_id)
 }
 
-fn build_engine_for_primary(state: &Arc<AppState>, root: &Path, primary_id: &str) -> Option<stt::Engine> {
-    let resolve_id =
-        |id: &str| -> Option<ResolvedModel> { state.catalog.get(id).and_then(|e| models::resolve(root, e)) };
+fn build_engine_for_primary(
+    state: &Arc<AppState>,
+    root: &Path,
+    primary_id: &str,
+) -> Option<stt::Engine> {
+    let resolve_id = |id: &str| -> Option<ResolvedModel> {
+        state.catalog.get(id).and_then(|e| models::resolve(root, e))
+    };
     let provider = state.provider.lock().clone();
     let primary = resolve_id(primary_id)?;
     let vad_model = match resolve_id(&state.vad_id.lock())? {
         ResolvedModel::Vad { model } => model,
         _ => return None,
     };
-    let recognizer = stt::build_recognizer(&primary, &provider).ok()?;
-    let fb = state
-        .fallback_id
-        .lock()
-        .as_ref()
-        .and_then(|id| resolve_id(id))
-        .and_then(|m| stt::build_recognizer(&m, &provider).ok());
+    let contextual_biasing_requested =
+        *state.decoder_vocabulary_enabled.lock() && stt::supports_contextual_biasing(&primary);
+    let (recognizer, contextual_biasing) = stt::build_recognizer_with_context_fallback(
+        &primary,
+        &provider,
+        contextual_biasing_requested,
+    )
+    .ok()?;
+    // A separate greedy recognizer makes the debug comparison a real A/B test:
+    // both decoding methods receive exactly the same captured waveform.
+    let baseline = contextual_biasing
+        .then(|| stt::build_recognizer(&primary, &provider, false).ok())
+        .flatten();
     let vad = stt::build_vad(&vad_model.to_string_lossy()).ok()?;
-    Some(stt::Engine::new(recognizer, fb, vad))
+    Some(stt::Engine::new(
+        recognizer,
+        baseline,
+        vad,
+        contextual_biasing,
+    ))
 }
 
 /// Inicia una sesión: reclama la grabación de forma atómica, muestra la isla flotante,
@@ -935,13 +1112,45 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
         let _ = app2.emit("audio-capture-stats", capture_stats);
 
         // Exactly one full-utterance recognition call; empty captures do not invoke ASR.
-        let raw = engine
-            .as_ref()
-            .map(|eng| eng.transcribe_complete(&utterance_16k))
-            .unwrap_or_default();
-        let cleaned = stt::clean_text(&raw);
-        let dict = state2.dictionary.lock().clone();
         let vocabulary = state2.vocabulary.lock().clone();
+        let decoded = engine
+            .as_ref()
+            .map(|eng| eng.transcribe_complete(&utterance_16k, &vocabulary))
+            .unwrap_or(stt::CompleteTranscription {
+                selected: String::new(),
+                selected_ms: 0,
+                baseline: None,
+                baseline_ms: None,
+            });
+        // The greedy stage reflects the baseline recognizer when contextual biasing runs an A/B
+        // pass, otherwise the single decode call is itself the greedy result.
+        let greedy_ms = decoded.baseline_ms.unwrap_or(decoded.selected_ms);
+        let decoder_vocabulary_ms = decoded.selected_ms;
+        let (greedy_text, decoder_vocabulary_text) = match decoded.baseline.as_deref() {
+            Some(baseline) => (
+                stt::clean_text(baseline),
+                Some(stt::clean_text(&decoded.selected)),
+            ),
+            None => (stt::clean_text(&decoded.selected), None),
+        };
+        let cleaned = decoder_vocabulary_text
+            .clone()
+            .unwrap_or_else(|| greedy_text.clone());
+        let mut transcript_stages = vec![TranscriptStage {
+            kind: TranscriptStageKind::Greedy,
+            label: "Parakeet baseline (greedy)".into(),
+            text: greedy_text,
+            ms: greedy_ms,
+        }];
+        if let Some(text) = decoder_vocabulary_text {
+            transcript_stages.push(TranscriptStage {
+                kind: TranscriptStageKind::DecoderVocabulary,
+                label: "Decoder vocabulary (modified beam)".into(),
+                text,
+                ms: decoder_vocabulary_ms,
+            });
+        }
+        let dict = state2.dictionary.lock().clone();
         let dictionary_mode = *state2.dictionary_mode.lock();
         // Workflows use deterministic local text. In Cerebras mode that is the untouched cleaned
         // ASR result, so neither a cloud response nor an unconditional dictionary replacement can
@@ -980,8 +1189,18 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
                 let config = state2.cerebras.lock().clone();
                 // Give Cerebras the untouched cleaned ASR result so it can resolve phonetic
                 // variants from preferred vocabulary without forcing an unconditional match.
+                let rewrite_started = std::time::Instant::now();
                 match cerebras::cleanup_transcription(&config, &cleaned, &vocabulary, &dict) {
-                    Ok(corrected) => final_text = corrected,
+                    Ok(corrected) => {
+                        let rewrite_ms = rewrite_started.elapsed().as_millis() as u64;
+                        final_text = corrected.clone();
+                        transcript_stages.push(TranscriptStage {
+                            kind: TranscriptStageKind::Rewrite,
+                            label: "Cerebras rewrite".into(),
+                            text: corrected,
+                            ms: rewrite_ms,
+                        });
+                    }
                     Err(e) => {
                         eprintln!("[cerebras] {e}");
                         let _ = app2.emit(
@@ -1008,6 +1227,7 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
                 TranscriptEvent {
                     text: final_text,
                     interim: false,
+                    stages: transcript_stages,
                 },
             );
         }
@@ -1040,8 +1260,20 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Yawning Face", true, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let stop = MenuItem::with_id(app, "stop", "Stop Recording", true, None::<&str>)?;
-    let copy_last = MenuItem::with_id(app, "copy_last", "Copy Last Transcription", true, None::<&str>)?;
-    let transcribe_file = MenuItem::with_id(app, "transcribe_file", "Transcribe File", true, None::<&str>)?;
+    let copy_last = MenuItem::with_id(
+        app,
+        "copy_last",
+        "Copy Last Transcription",
+        true,
+        None::<&str>,
+    )?;
+    let transcribe_file = MenuItem::with_id(
+        app,
+        "transcribe_file",
+        "Transcribe File",
+        true,
+        None::<&str>,
+    )?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
@@ -1049,7 +1281,17 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
     let menu = Menu::with_items(
         app,
-        &[&open, &sep1, &stop, &copy_last, &transcribe_file, &sep2, &settings, &sep3, &quit],
+        &[
+            &open,
+            &sep1,
+            &stop,
+            &copy_last,
+            &transcribe_file,
+            &sep2,
+            &settings,
+            &sep3,
+            &quit,
+        ],
     )?;
 
     TrayIconBuilder::with_id("main-tray")
@@ -1121,6 +1363,7 @@ pub fn run() {
             clear_cerebras_api_key,
             set_cerebras_config,
             set_vocabulary,
+            set_decoder_vocabulary_enabled,
             set_dictionary,
             set_workflows_enabled,
             start_recording,
@@ -1151,13 +1394,13 @@ pub fn run() {
                 capture: Mutex::new(None),
                 engine: Mutex::new(None),
                 primary_id: Mutex::new(primary_id),
-                fallback_id: Mutex::new(None),
                 vad_id: Mutex::new("silero-vad".into()),
                 provider: Mutex::new(provider_default()),
                 inject_mode: Mutex::new(InjectMode::Paste),
                 dictionary_mode: Mutex::new(DictionaryMode::Postprocess),
                 cerebras: Mutex::new(cerebras::Config::default()),
                 vocabulary: Mutex::new(Vec::new()),
+                decoder_vocabulary_enabled: Mutex::new(false),
                 dictionary: Mutex::new(Vec::new()),
                 workflows_enabled: Mutex::new(HashMap::new()),
             });
@@ -1248,6 +1491,8 @@ pub fn run() {
                     let y = 28.0 * scale;
                     let _ = pill.set_position(tauri::PhysicalPosition::new(x, y));
                 }
+                // Vigilante que mantiene la isla por encima de todo mientras se graba.
+                spawn_pill_topmost_watcher(app.handle().clone());
             }
 
             // Hotkey de bajo nivel: mantener Ctrl+Shift inicia dictado; soltarlo lo para.

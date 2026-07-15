@@ -112,7 +112,17 @@ export function AppLayout() {
         }
       }
       if (ids.includes(active)) {
-        invoke("set_active_model", { id: active });
+        await invoke("set_active_model", { id: active });
+      }
+      try {
+        await invoke("set_decoder_vocabulary_enabled", {
+          enabled: getState().decoderVocabularyEnabled,
+        });
+      } catch (error) {
+        console.error("decoder vocabulary setup failed", error);
+        if (getState().decoderVocabularyEnabled) {
+          showToast("Decoder vocabulary could not start. Select an installed Parakeet model.");
+        }
       }
     });
     invoke("set_inject_mode", { mode: getState().insertMethod });

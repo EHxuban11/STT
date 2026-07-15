@@ -1,8 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { BarChart3, Check, Clock, Copy, Mic } from "lucide-react";
+import { BarChart3, Check, ChevronRight, Clock, Copy, Mic } from "lucide-react";
 import { EmptyState, HeroCard, IconBadge, Kbd } from "@/components/ui";
-import { showToast, useStore, type Transcription } from "@/lib/store";
+import {
+  showToast,
+  useStore,
+  type TranscriptStage,
+  type Transcription,
+} from "@/lib/store";
 import { copyText } from "@/lib/tauri";
 import { PTT_KEYS } from "@/lib/hotkey";
 
@@ -64,8 +69,189 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+interface DiffPart {
+  text: string;
+  tokenIndex?: number;
+}
+
+function splitForDiff(text: string) {
+  const parts: DiffPart[] = [];
+  const tokens: string[] = [];
+  const segments = text.match(/\s+|[\p{L}\p{N}_]+(?:[’'-][\p{L}\p{N}_]+)*|[^\s]/gu) ?? [];
+  for (const segment of segments) {
+    if (/^\s+$/u.test(segment)) {
+      parts.push({ text: segment });
+    } else {
+      parts.push({ text: segment, tokenIndex: tokens.length });
+      tokens.push(segment);
+    }
+  }
+  return { parts, tokens };
+}
+
+/** Target-side word/punctuation changes, found with a longest-common-subsequence alignment. */
+function changedTokenIndices(before: string, after: string) {
+  const source = splitForDiff(before).tokens;
+  const target = splitForDiff(after).tokens;
+  const changed = new Set(target.map((_, index) => index));
+  if (!source.length || !target.length) return changed;
+
+  // Dictations are normally short. Avoid a pathological allocation for imported/legacy text.
+  if (source.length * target.length > 250_000) return changed;
+
+  const columns = target.length + 1;
+  const lcs = new Uint16Array((source.length + 1) * columns);
+  for (let i = 1; i <= source.length; i += 1) {
+    for (let j = 1; j <= target.length; j += 1) {
+      const cell = i * columns + j;
+      lcs[cell] = source[i - 1] === target[j - 1]
+        ? lcs[(i - 1) * columns + j - 1] + 1
+        : Math.max(lcs[(i - 1) * columns + j], lcs[i * columns + j - 1]);
+    }
+  }
+
+  let i = source.length;
+  let j = target.length;
+  while (i > 0 && j > 0) {
+    if (source[i - 1] === target[j - 1]) {
+      changed.delete(j - 1);
+      i -= 1;
+      j -= 1;
+    } else if (lcs[(i - 1) * columns + j] >= lcs[i * columns + j - 1]) {
+      i -= 1;
+    } else {
+      j -= 1;
+    }
+  }
+  return changed;
+}
+
+function ComparedText({ text, previousText }: { text: string; previousText?: string }) {
+  if (!text) return <span className="italic text-faint">No text</span>;
+  if (previousText === undefined) return <>{text}</>;
+
+  const { parts } = splitForDiff(text);
+  const changed = changedTokenIndices(previousText, text);
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.tokenIndex !== undefined && changed.has(part.tokenIndex) ? (
+          <span
+            key={index}
+            className="underline decoration-red-500 decoration-2 underline-offset-[3px]"
+          >
+            {part.text}
+          </span>
+        ) : (
+          <span key={index}>{part.text}</span>
+        )
+      )}
+    </>
+  );
+}
+
+/** Compact latency label for a stage header, e.g. "142 ms" or "1.24 s". */
+function formatStageMs(ms: number | undefined) {
+  if (ms === undefined || !Number.isFinite(ms) || ms < 0) return null;
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
+}
+
+function visibleStages(
+  stages: TranscriptStage[] | undefined,
+  showDecoderStage: boolean,
+  showRewriteStage: boolean
+) {
+  return (stages ?? []).filter((stage) => {
+    if (stage.kind === "decoder-vocabulary") return showDecoderStage;
+    if (stage.kind === "rewrite") return showRewriteStage;
+    return true;
+  });
+}
+
+function HistoryItem({
+  transcription,
+  showDecoderStage,
+  showRewriteStage,
+}: {
+  transcription: Transcription;
+  showDecoderStage: boolean;
+  showRewriteStage: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const stages = visibleStages(transcription.stages, showDecoderStage, showRewriteStage);
+  const canExpand = stages.length > 1;
+
+  return (
+    <div className="group border-b border-line transition-colors last:border-0 hover:bg-card">
+      <div className="flex items-start gap-3 px-4 py-3">
+        {canExpand ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            aria-expanded={expanded}
+            aria-label={expanded ? "Hide recognition stages" : "Show recognition stages"}
+            className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md text-faint transition-colors hover:bg-line hover:text-ink"
+            title={expanded ? "Hide recognition stages" : "Show recognition stages"}
+          >
+            <ChevronRight
+              size={15}
+              className={`transition-transform ${expanded ? "rotate-90" : ""}`}
+            />
+          </button>
+        ) : (
+          <div className="w-5 shrink-0" />
+        )}
+        <div className="w-16 shrink-0 pt-0.5 text-xs text-faint">
+          {timeLabel(transcription.at)}
+        </div>
+        <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm text-ink">
+          {transcription.text}
+        </p>
+        <CopyButton text={transcription.text} />
+      </div>
+
+      {canExpand && expanded && (
+        <div className="mb-3 ml-4 mr-4 overflow-x-auto rounded-xl border border-line bg-app/70 sm:ml-[7.75rem]">
+          <div
+            className="grid min-w-full"
+            style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(220px, 1fr))` }}
+          >
+            {stages.map((stage, index) => (
+              <div key={`${stage.kind}-${index}`} className="min-w-0 p-3 [&+&]:border-l [&+&]:border-line">
+                <div className="mb-1 flex items-baseline justify-between gap-2">
+                  <span
+                    className={`text-[10px] font-semibold uppercase tracking-wide ${
+                      index === 0 ? "text-faint" : "text-brand"
+                    }`}
+                  >
+                    {stage.label}
+                  </span>
+                  {formatStageMs(stage.ms) && (
+                    <span className="shrink-0 font-mono text-[10px] tabular-nums text-faint">
+                      {formatStageMs(stage.ms)}
+                    </span>
+                  )}
+                </div>
+                <p className="whitespace-pre-wrap text-[13px] leading-5 text-ink">
+                  <ComparedText
+                    text={stage.text}
+                    previousText={index > 0 ? stages[index - 1].text : undefined}
+                  />
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
   const txs = useStore((s) => s.transcriptions);
+  const decoderVocabularyEnabled = useStore((s) => s.decoderVocabularyEnabled);
+  const rewriteEnabled = useStore((s) => s.dictionaryMode === "cerebras");
 
   return (
     <div className="mx-auto max-w-4xl space-y-5 pt-2">
@@ -114,14 +300,12 @@ export default function Home() {
                 </div>
                 <div className="overflow-hidden rounded-2xl border border-line">
                   {g.items.map((t) => (
-                    <div
+                    <HistoryItem
                       key={t.id}
-                      className="group flex items-start gap-4 border-b border-line px-4 py-3 transition-colors last:border-0 hover:bg-card"
-                    >
-                      <div className="w-16 shrink-0 pt-0.5 text-xs text-faint">{timeLabel(t.at)}</div>
-                      <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm text-ink">{t.text}</p>
-                      <CopyButton text={t.text} />
-                    </div>
+                      transcription={t}
+                      showDecoderStage={decoderVocabularyEnabled}
+                      showRewriteStage={rewriteEnabled}
+                    />
                   ))}
                 </div>
               </div>

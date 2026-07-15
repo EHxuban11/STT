@@ -32,8 +32,10 @@ export interface AppState {
     removeFillers: boolean;
   };
   workflowsEnabled: Record<string, boolean>;
-  /** Canonical technical terms used as contextual vocabulary by Cerebras. */
+  /** Canonical technical terms used by Parakeet contextual biasing and Cerebras. */
   vocabulary: string[];
+  /** Opt-in Parakeet decoder-time vocabulary biasing. */
+  decoderVocabularyEnabled: boolean;
   /** Optional exact aliases: "heard as" -> "write as". */
   dictionary: DictEntry[];
   dictionaryMode: DictionaryMode;
@@ -55,6 +57,19 @@ export interface Transcription {
   text: string;
   at: number;
   words: number;
+  /** Ordered recognition pipeline outputs captured from the same utterance. */
+  stages?: TranscriptStage[];
+}
+
+export type TranscriptStageKind = "greedy" | "decoder-vocabulary" | "rewrite";
+
+export interface TranscriptStage {
+  kind: TranscriptStageKind;
+  /** Human-readable engine/provider name, such as "Cerebras rewrite". */
+  label: string;
+  text: string;
+  /** Wall-clock time this stage took, in milliseconds. Absent for legacy entries. */
+  ms?: number;
 }
 
 const DEFAULT: AppState = {
@@ -73,6 +88,7 @@ const DEFAULT: AppState = {
   },
   workflowsEnabled: {},
   vocabulary: [],
+  decoderVocabularyEnabled: false,
   dictionary: [],
   dictionaryMode: "postprocess",
   cerebras: {
@@ -99,6 +115,11 @@ const RECORDING_POS: RecordingPos[] = ["top", "bottom", "off"];
 const DICTIONARY_MODES: DictionaryMode[] = ["off", "postprocess", "cerebras"];
 const CEREBRAS_MODELS: CerebrasModel[] = ["gpt-oss-120b", "zai-glm-4.7", "gemma-4-31b"];
 const INSERT_METHODS: AppState["insertMethod"][] = ["paste", "type"];
+const TRANSCRIPT_STAGE_KINDS: TranscriptStageKind[] = [
+  "greedy",
+  "decoder-vocabulary",
+  "rewrite",
+];
 const MAX_CUSTOM_ENTRIES = 500;
 const MAX_CUSTOM_TEXT_CODE_POINTS = 120;
 const RECORDING_STATES: NonNullable<AppState["recording"]>[] = [
@@ -185,11 +206,51 @@ function transcriptionEntries(value: unknown): Transcription[] {
           : text
             ? text.split(/\s+/).length
             : 0;
+      const stages = Array.isArray(entry.stages)
+        ? entry.stages
+            .filter(isRecord)
+            .filter(
+              (stage) =>
+                typeof stage.kind === "string" &&
+                TRANSCRIPT_STAGE_KINDS.includes(stage.kind as TranscriptStageKind) &&
+                typeof stage.label === "string" &&
+                typeof stage.text === "string"
+            )
+            .map((stage) => ({
+              kind: stage.kind as TranscriptStageKind,
+              label: (stage.label as string).trim().slice(0, 80),
+              text: (stage.text as string).trim(),
+              ms:
+                typeof stage.ms === "number" && Number.isFinite(stage.ms)
+                  ? Math.max(0, Math.round(stage.ms))
+                  : undefined,
+            }))
+            .filter((stage) => stage.label)
+            .slice(0, 8)
+        : [];
+      const legacyComparison = isRecord(entry.decoderComparison)
+        && typeof entry.decoderComparison.parakeetText === "string"
+        && typeof entry.decoderComparison.decoderVocabularyText === "string"
+        ? [
+            {
+              kind: "greedy" as const,
+              label: "Parakeet baseline (greedy)",
+              text: entry.decoderComparison.parakeetText.trim(),
+            },
+            {
+              kind: "decoder-vocabulary" as const,
+              label: "Decoder vocabulary (modified beam)",
+              text: entry.decoderComparison.decoderVocabularyText.trim(),
+            },
+          ]
+        : [];
+      const normalizedStages = stages.length ? stages : legacyComparison;
       return {
         id: stringOr(entry.id, `${at}-${Math.floor(Math.random() * 1e6)}`),
         text,
         at,
         words,
+        stages: normalizedStages.length ? normalizedStages : undefined,
       };
     })
     .filter((entry) => entry.text)
@@ -221,6 +282,10 @@ function normalizeState(value: unknown): AppState {
     vocabulary: Array.isArray(value.vocabulary)
       ? vocabularyTerms(value.vocabulary)
       : vocabularyTerms(dictionary.map((entry) => entry.to)),
+    decoderVocabularyEnabled: boolOr(
+      value.decoderVocabularyEnabled,
+      DEFAULT.decoderVocabularyEnabled
+    ),
     dictionary,
     dictionaryMode: enumOr(value.dictionaryMode, DICTIONARY_MODES, DEFAULT.dictionaryMode),
     cerebras: {
@@ -322,6 +387,12 @@ export function saveVocabulary(terms: string[]) {
   invoke("set_vocabulary", { terms: vocabulary });
 }
 
+/** Enables real decoder-time contextual biasing after the native backend is ready. */
+export async function saveDecoderVocabularyEnabled(enabled: boolean) {
+  await invoke("set_decoder_vocabulary_enabled", { enabled });
+  setState({ decoderVocabularyEnabled: enabled });
+}
+
 /** Cambia cómo se aplica el diccionario del usuario. */
 export function saveDictionaryMode(mode: DictionaryMode) {
   setState({ dictionaryMode: mode });
@@ -350,12 +421,16 @@ export function showToast(msg: string, ms = 4500) {
 }
 
 /** Añade una transcripción al historial (y deja `liveText` con el último texto). */
-export function addTranscription(text: string) {
+export function addTranscription(
+  text: string,
+  stages?: TranscriptStage[]
+) {
   const t: Transcription = {
     id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
     text,
     at: Date.now(),
     words: text.trim() ? text.trim().split(/\s+/).length : 0,
+    stages,
   };
   setState((s) => ({ transcriptions: [t, ...s.transcriptions].slice(0, 200) }));
   return t;

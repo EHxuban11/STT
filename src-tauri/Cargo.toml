@@ -1,6 +1,6 @@
 [package]
 name = "vowen-clone"
-version = "0.1.14"
+version = "0.1.17"
 description = "Yawning Face STT — voice-first dictation for the desktop"
 authors = ["you"]
 edition = "2021"

@@ -6,6 +6,13 @@
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
       "sha256": null,
       "bytes": 703000000,
+      "contextual_biasing": {
+        "vocab": "bpe.vocab",
+        "url": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3/resolve/7c35754d166cca382ad1e53e68b01e7c575f3a1d/parakeet-tdt-0.6b-v3.nemo",
+        "range_start": 3072,
+        "range_end": 104095,
+        "sha256": "41130ff456706304a1adec782ccc9e003c4d417e8e324353d281be958cac4e17"
+      },
       "files": {
         "type": "transducer",
         "encoder": "encoder.int8.onnx",
@@ -20,6 +27,13 @@
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
       "sha256": null,
       "bytes": 693000000,
+      "contextual_biasing": {
+        "vocab": "bpe.vocab",
+        "url": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2/resolve/ae9ad07059c7c739ffaf932226a8fe64ae2620b0/parakeet-tdt-0.6b-v2.nemo",
+        "range_start": 263168,
+        "range_end": 273560,
+        "sha256": "dbe7ec6bd066c4526080940e1614e6582b9161515e856c2c39a1d49267c88cbc"
+      },
       "files": {
         "type": "transducer",
         "encoder": "encoder.int8.onnx",

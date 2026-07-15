@@ -1,8 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { ChevronDown, Plus, Settings, Trash2 } from "lucide-react";
-import { HeroCard } from "@/components/ui";
-import { saveDictionary, saveVocabulary, showToast, useStore } from "@/lib/store";
+import { AudioWaveform, ChevronDown, Plus, Settings, Trash2 } from "lucide-react";
+import { HeroCard, Toggle } from "@/components/ui";
+import {
+  saveDecoderVocabularyEnabled,
+  saveDictionary,
+  saveVocabulary,
+  showToast,
+  useStore,
+} from "@/lib/store";
 import type { DictEntry } from "@/lib/store";
 
 function normalizeText(value: string): string {
@@ -27,10 +33,31 @@ export default function Dictionary() {
   const vocabulary = useStore((s) => s.vocabulary);
   const dictionary = useStore((s) => s.dictionary);
   const dictionaryMode = useStore((s) => s.dictionaryMode);
+  const decoderVocabularyEnabled = useStore((s) => s.decoderVocabularyEnabled);
+  const activeModelId = useStore((s) => s.activeModelId);
   const [newTerm, setNewTerm] = useState("");
   const [newAlias, setNewAlias] = useState<DictEntry>({ from: "", to: "" });
+  const [changingDecoderVocabulary, setChangingDecoderVocabulary] = useState(false);
   const vocabularyFull = vocabulary.length >= 500;
   const aliasFull = dictionary.length >= 500;
+  const decoderVocabularySupported = activeModelId.startsWith("parakeet-");
+
+  async function changeDecoderVocabulary(enabled: boolean) {
+    setChangingDecoderVocabulary(true);
+    try {
+      await saveDecoderVocabularyEnabled(enabled);
+      showToast(
+        enabled
+          ? "Decoder vocabulary boosting is active for Parakeet."
+          : "Decoder vocabulary boosting is off."
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showToast(message || "Could not change decoder vocabulary boosting.");
+    } finally {
+      setChangingDecoderVocabulary(false);
+    }
+  }
 
   function addTerm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -84,13 +111,57 @@ export default function Dictionary() {
       <HeroCard
         title="Words that belong to you."
         body={
-          dictionaryMode === "off"
+          decoderVocabularyEnabled
+            ? dictionaryMode === "cerebras"
+              ? "Parakeet biases beam-search decoding toward your preferred vocabulary. Cerebras can then use those terms and exact aliases to correct remaining recognition mistakes."
+              : dictionaryMode === "postprocess"
+                ? "Parakeet biases beam-search decoding toward your preferred vocabulary. Exact aliases are still applied locally after recognition."
+                : "Parakeet biases beam-search decoding toward your preferred vocabulary. Exact aliases and Cerebras processing are off."
+            : dictionaryMode === "off"
             ? "Vocabulary processing is off. Your preferred terms and exact aliases remain saved."
             : dictionaryMode === "cerebras"
               ? "For live dictation, Cerebras uses your preferred vocabulary and exact aliases to correct likely recognition mistakes. Up to 500 vocabulary terms and only the first 200 exact aliases may be sent with the local transcription and domain context. File transcription stays local."
               : "Exact aliases are applied locally after speech recognition. Your vocabulary remains saved for Cerebras AI mode."
         }
       />
+
+      <section className="rounded-2xl border border-line bg-card px-5 py-4">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-app text-brand">
+            <AudioWaveform size={18} aria-hidden="true" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-[15px] font-semibold text-ink">Parakeet decoder vocabulary</h2>
+              <span className="rounded-full bg-app px-2 py-0.5 text-[11px] font-semibold text-muted">
+                Experimental
+              </span>
+            </div>
+            <p className="mt-1 text-[13px] leading-relaxed text-muted">
+              Bias Parakeet's beam search toward the vocabulary below while it decodes the audio.
+              This is acoustic decoder context, not a replacement pass over finished text.
+            </p>
+            <p className="mt-2 text-xs text-faint">
+              Parakeet V2/V3 only. The first activation fetches verified tokenizer metadata
+              (about 10-100 KB); recordings and vocabulary stay on this device.
+            </p>
+            {!decoderVocabularySupported && (
+              <p className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                Select an installed Parakeet V2 or V3 model to enable this.
+              </p>
+            )}
+          </div>
+          <Toggle
+            checked={decoderVocabularyEnabled}
+            disabled={
+              changingDecoderVocabulary ||
+              (!decoderVocabularySupported && !decoderVocabularyEnabled)
+            }
+            onChange={changeDecoderVocabulary}
+            label="Parakeet decoder vocabulary"
+          />
+        </div>
+      </section>
 
       <section className="overflow-hidden rounded-2xl border border-line">
         <div className="border-b border-line bg-card px-5 py-4">

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { setState, getState, addTranscription } from "./store";
+import { setState, getState, addTranscription, type TranscriptStage } from "./store";
 import { isTauri, on } from "./tauri";
 
 const SAMPLES = [
@@ -63,12 +63,16 @@ export function useDictation() {
 
     // Transcripciones del backend: interim = preview en vivo; final = definitivo.
     subs.push(
-      on<{ text: string; interim: boolean }>("transcript", (t) => {
+      on<{
+        text: string;
+        interim: boolean;
+        stages?: TranscriptStage[];
+      }>("transcript", (t) => {
         if (t.interim) {
           setState({ recording: "listening", liveText: t.text });
         } else if (t.text.trim()) {
           // Texto definitivo → guardar en el historial (una sola vez, sin depender del "idle").
-          addTranscription(t.text);
+          addTranscription(t.text, t.stages);
           setState({ recording: "done", liveText: t.text });
         }
       })
