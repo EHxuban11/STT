@@ -13,17 +13,19 @@ use audio::{
 use models::{Catalog, ModelKind, ResolvedModel};
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use std::sync::atomic::AtomicBool;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, State,
 };
+use tauri_plugin_autostart::MacosLauncher;
 
 /// True while the recording island should be on screen. A background watcher
 /// keeps re-asserting the pill's topmost z-order while this holds, so the island
@@ -921,6 +923,15 @@ fn show_main(app: &AppHandle) {
     }
 }
 
+fn starts_hidden<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    args.into_iter()
+        .any(|arg| arg.as_ref() == OsStr::new("--hidden"))
+}
+
 fn show_pill(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("pill") {
         // Mostrar primero y luego re-afirmar el z-order topmost, para que la isla
@@ -1146,7 +1157,9 @@ fn start_session(app: &AppHandle, state: &Arc<AppState>) -> Result<(), String> {
             .iter()
             .fold(0.0_f32, |max, &sample| max.max(sample.abs()));
         if utterance_16k.len() >= min_silence_samples && peak < SILENCE_PEAK {
-            eprintln!("[audio] captured near-silence (peak={peak:.5}); mic likely not delivering audio");
+            eprintln!(
+                "[audio] captured near-silence (peak={peak:.5}); mic likely not delivering audio"
+            );
             if *state2.primary_id.lock() == session_model_id {
                 *state2.engine.lock() = engine; // devolver el motor a la caché
             }
@@ -1382,6 +1395,10 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec!["--hidden"]),
+        ))
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -1513,6 +1530,15 @@ pub fn run() {
             // Bandeja del sistema.
             build_tray(app.handle())?;
 
+            // On macOS the dictation app is a menu-bar utility. Keep it out of
+            // the Dock and register a per-user LaunchAgent for hidden startup.
+            #[cfg(target_os = "macos")]
+            {
+                use tauri_plugin_autostart::ManagerExt;
+                let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                let _ = app.autolaunch().enable();
+            }
+
             // Isla flotante de grabación: ventana transparente, always-on-top, sin marco,
             // oculta hasta que se graba. Se posiciona arriba-centro de la pantalla.
             if let Ok(pill) = tauri::WebviewWindowBuilder::new(
@@ -1565,8 +1591,26 @@ pub fn run() {
                     }
                 }
             });
+
+            // The main window is configured hidden so login never flashes it.
+            // A normal launch shows it; autostart passes --hidden and leaves
+            // dictation available from the tray/menu bar.
+            if !starts_hidden(std::env::args_os()) {
+                show_main(app.handle());
+            }
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::starts_hidden;
+
+    #[test]
+    fn hidden_flag_suppresses_the_main_window() {
+        assert!(starts_hidden(["yawning-face-stt", "--hidden"]));
+        assert!(!starts_hidden(["yawning-face-stt"]));
+    }
 }

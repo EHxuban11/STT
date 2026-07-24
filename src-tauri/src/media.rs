@@ -29,7 +29,12 @@ pub fn decode_to_16k_mono(path: &Path) -> Result<DecodedAudio> {
     }
 
     let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
         .map_err(|e| anyhow!("Unsupported or unreadable media file: {e}"))?;
     let mut format = probed.format;
 
@@ -55,7 +60,9 @@ pub fn decode_to_16k_mono(path: &Path) -> Result<DecodedAudio> {
             Ok(packet) => packet,
             Err(SymphoniaError::IoError(_)) => break,
             Err(SymphoniaError::ResetRequired) => {
-                return Err(anyhow!("Decoder reset required; this media file is not supported yet"));
+                return Err(anyhow!(
+                    "Decoder reset required; this media file is not supported yet"
+                ));
             }
             Err(e) => return Err(anyhow!("Could not read media packet: {e}")),
         };
@@ -101,7 +108,9 @@ fn resample_mono(mono: &[f32], src_rate: usize, target_rate: usize) -> Result<Ve
 
     let mut resampler = FftFixedIn::<f32>::new(src_rate, target_rate, RESAMPLE_CHUNK, 1, 1)?;
     let mut input = mono.to_vec();
-    let mut out = Vec::with_capacity((mono.len() as f64 * target_rate as f64 / src_rate as f64) as usize + target_rate);
+    let mut out = Vec::with_capacity(
+        (mono.len() as f64 * target_rate as f64 / src_rate as f64) as usize + target_rate,
+    );
 
     while input.len() >= RESAMPLE_CHUNK {
         let chunk: Vec<f32> = input.drain(..RESAMPLE_CHUNK).collect();

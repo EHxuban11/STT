@@ -104,7 +104,7 @@ export default function Settings() {
             </button>
           ))}
         </nav>
-        <div className="px-3 pt-2 text-xs text-faint">v0.1.18</div>
+        <div className="px-3 pt-2 text-xs text-faint">v0.1.19</div>
       </div>
 
       {/* Contenido */}

@@ -7,6 +7,6 @@
     <key>NSInputMonitoringUsageDescription</key>
     <string>Yawning Face STT detects your global dictation hotkey (Ctrl/Cmd + Shift).</string>
     <key>LSUIElement</key>
-    <false/>
+    <true/>
   </dict>
 </plist>

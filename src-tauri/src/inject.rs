@@ -33,8 +33,10 @@ fn wait_for_modifiers_released() {
         GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
     };
     let keys = [VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN];
-    let any_down =
-        || keys.iter().any(|&k| unsafe { (GetAsyncKeyState(k as i32) as u16) & 0x8000 != 0 });
+    let any_down = || {
+        keys.iter()
+            .any(|&k| unsafe { (GetAsyncKeyState(k as i32) as u16) & 0x8000 != 0 })
+    };
     // Hasta ~600 ms; en la práctica se resuelve en una o dos iteraciones.
     for _ in 0..60 {
         if !any_down() {
@@ -59,7 +61,8 @@ pub fn insert_via_paste(app: &AppHandle, text: &str) -> Result<(), String> {
     }
     let clip = app.clipboard();
     let previous = clip.read_text().ok();
-    clip.write_text(text.to_string()).map_err(|e| e.to_string())?;
+    clip.write_text(text.to_string())
+        .map_err(|e| e.to_string())?;
 
     let mut enigo = make_enigo()?;
 
@@ -80,9 +83,15 @@ pub fn insert_via_paste(app: &AppHandle, text: &str) -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
     let (modifier, v_key) = (Key::Control, Key::Other(0x56)); // Ctrl + V (VK_V)
 
-    enigo.key(modifier, Direction::Press).map_err(|e| e.to_string())?;
-    enigo.key(v_key, Direction::Click).map_err(|e| e.to_string())?;
-    enigo.key(modifier, Direction::Release).map_err(|e| e.to_string())?;
+    enigo
+        .key(modifier, Direction::Press)
+        .map_err(|e| e.to_string())?;
+    enigo
+        .key(v_key, Direction::Click)
+        .map_err(|e| e.to_string())?;
+    enigo
+        .key(modifier, Direction::Release)
+        .map_err(|e| e.to_string())?;
 
     // Mantener el texto en el portapapeles el tiempo suficiente para que la app lo pegue.
     thread::sleep(Duration::from_millis(150));

@@ -4,6 +4,10 @@ A lightweight, voice-first **speech-to-text / dictation** desktop app — a from
 
 Hold a global hotkey → speak → the text is transcribed **locally** (NVIDIA Parakeet / Whisper via sherpa-onnx) and inserted into whatever app has focus.
 
+Pass `--hidden` at login to start directly in the Windows system tray or macOS
+menu bar without flashing the main window. On macOS, the first run registers
+this hidden login launch automatically.
+
 > This is a personal/educational reimplementation. The original Vowen is a commercial product; its trademarks/branding belong to its authors.
 
 ---

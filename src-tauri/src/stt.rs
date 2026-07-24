@@ -325,7 +325,8 @@ impl Engine {
                 .contextual_biasing
                 .then(|| contextual_phrases(vocabulary))
                 .flatten();
-            let (selected, selected_ms) = timed(|| transcribe(&self.recognizer, samples, phrases.as_deref()));
+            let (selected, selected_ms) =
+                timed(|| transcribe(&self.recognizer, samples, phrases.as_deref()));
             let (baseline, baseline_ms) = match self.baseline.as_ref() {
                 Some(recognizer) => {
                     let (text, ms) = timed(|| transcribe(recognizer, samples, None));
@@ -383,9 +384,8 @@ mod contextual_biasing_tests {
         .expect("contextual vocabulary download");
         let model = crate::models::resolve(&root, &entry).expect("installed Parakeet V2");
 
-        let (recognizer, active) =
-            build_recognizer_with_context_fallback(&model, "cpu", true)
-                .expect("create Parakeet recognizer");
+        let (recognizer, active) = build_recognizer_with_context_fallback(&model, "cpu", true)
+            .expect("create Parakeet recognizer");
         assert!(active, "modified beam search fell back to greedy search");
 
         // Exercise per-stream raw phrase tokenization and context-graph creation,

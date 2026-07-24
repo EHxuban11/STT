@@ -23,30 +23,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  warm-windows-release-cache:
-    name: Warm Windows release cache
-    runs-on: windows-latest
+  warm-release-cache:
+    name: Warm ${{ matrix.name }} release cache
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: 'Windows x64', platform: windows-latest, args: '', cache: windows, target: x86_64-pc-windows-msvc }
+          - { name: 'macOS Apple Silicon', platform: macos-latest, args: '--target aarch64-apple-darwin', cache: macos-arm64, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: 'npm'
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
-          shared-key: windows-release
+          shared-key: release-${{ matrix.cache }}
 
-      - name: Verify CMake
+      - name: Verify CMake on Windows
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           if (Get-Command cmake -ErrorAction SilentlyContinue) {
@@ -57,11 +66,15 @@ jobs:
             cmake --version
           }
 
+      - name: Verify CMake on macOS
+        if: runner.os == 'macOS'
+        run: cmake --version
+
       - name: Install frontend deps
         run: npm ci
 
       - name: Build frontend
         run: npm run build
 
-      - name: Build Rust release binary
-        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+      - name: Build installable app
+        run: npx tauri build ${{ matrix.args }}

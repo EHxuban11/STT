@@ -9,30 +9,39 @@ permissions:
   contents: write
 
 jobs:
-  build-windows:
-    name: Build Windows installer
-    runs-on: windows-latest
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: 'Windows x64', platform: windows-latest, args: '', cache: windows, target: x86_64-pc-windows-msvc }
+          - { name: 'macOS Apple Silicon', platform: macos-latest, args: '--target aarch64-apple-darwin', cache: macos-arm64, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: 'npm'
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
-          shared-key: windows-release
+          shared-key: release-${{ matrix.cache }}
 
-      - name: Verify CMake
+      - name: Verify CMake on Windows
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           if (Get-Command cmake -ErrorAction SilentlyContinue) {
@@ -42,6 +51,10 @@ jobs:
             "C:\Program Files\CMake\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
             cmake --version
           }
+
+      - name: Verify CMake on macOS
+        if: runner.os == 'macOS'
+        run: cmake --version
 
       - name: Install frontend deps
         run: npm ci
@@ -53,5 +66,19 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Yawning Face STT v__VERSION__'
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
+          args: ${{ matrix.args }}
+
+  publish:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish completed release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release edit '${{ github.ref_name }}'
+          --repo '${{ github.repository }}'
+          --draft=false --latest

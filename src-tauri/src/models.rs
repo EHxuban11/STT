@@ -522,10 +522,7 @@ mod contextual_biasing_asset_tests {
     #[test]
     fn parakeet_catalog_entries_pin_verified_contextual_vocabularies() {
         let catalog = Catalog::load(None).expect("embedded catalog");
-        for id in [
-            "parakeet-tdt-0.6b-v2-int8",
-            "parakeet-tdt-0.6b-v3-int8",
-        ] {
+        for id in ["parakeet-tdt-0.6b-v2-int8", "parakeet-tdt-0.6b-v3-int8"] {
             let asset = catalog
                 .get(id)
                 .and_then(|entry| entry.contextual_biasing.as_ref())

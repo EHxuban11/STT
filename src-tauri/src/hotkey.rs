@@ -38,7 +38,10 @@ where
     }
 
     fn modifier(vk: u16) -> bool {
-        matches!(vk, VK_CONTROL | VK_LCONTROL | VK_RCONTROL | VK_LWIN | VK_RWIN)
+        matches!(
+            vk,
+            VK_CONTROL | VK_LCONTROL | VK_RCONTROL | VK_LWIN | VK_RWIN
+        )
     }
 
     fn other_key_down() -> bool {
