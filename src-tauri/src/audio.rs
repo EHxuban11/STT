@@ -5,25 +5,46 @@ use ringbuf::traits::{Consumer, Producer, Split};
 use ringbuf::HeapRb;
 use rubato::{FftFixedIn, Resampler};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
+use std::thread::JoinHandle;
 
 pub const TARGET_SR: usize = 16_000;
 const RESAMPLE_CHUNK: usize = 1024;
 
-/// Stream de captura vivo + sample rate de origen.
+/// Thread-safe handle for a live capture stream.
+///
+/// CoreAudio streams are not `Send`, so the native stream stays on the
+/// dedicated capture thread that created it. Tauri's managed state only keeps
+/// this handle, which can safely move between threads on every platform.
 pub struct Capture {
-    pub stream: cpal::Stream,
     pub src_sr: u32,
     /// Number of mono source-rate frames rejected because the app ring was full.
     pub dropped_samples: Arc<AtomicU64>,
+    stop_tx: Option<mpsc::Sender<()>>,
+    thread: Option<JoinHandle<()>>,
 }
 
 impl Capture {
     /// Stop callbacks before dropping the stream so the consumer can drain a stable ring.
-    pub fn stop(self) {
-        if let Err(e) = self.stream.pause() {
-            eprintln!("[audio] could not pause capture stream: {e}");
+    pub fn stop(mut self) {
+        self.request_stop();
+        if let Some(thread) = self.thread.take() {
+            if thread.join().is_err() {
+                eprintln!("[audio] capture thread panicked while stopping");
+            }
         }
+    }
+
+    fn request_stop(&mut self) {
+        if let Some(stop_tx) = self.stop_tx.take() {
+            let _ = stop_tx.send(());
+        }
+    }
+}
+
+impl Drop for Capture {
+    fn drop(&mut self) {
+        self.request_stop();
     }
 }
 
@@ -61,6 +82,53 @@ pub fn start_capture(
     prod: impl Producer<Item = f32> + Send + 'static,
     device_name: Option<&str>,
 ) -> Result<Capture> {
+    let device_name = device_name.map(str::to_owned);
+    let (init_tx, init_rx) = mpsc::sync_channel(1);
+    let (stop_tx, stop_rx) = mpsc::channel();
+
+    let thread = std::thread::Builder::new()
+        .name("stt-audio-capture".to_string())
+        .spawn(move || {
+            let result = open_capture(prod, device_name.as_deref());
+            match result {
+                Ok((stream, src_sr, dropped_samples)) => {
+                    if init_tx.send(Ok((src_sr, dropped_samples))).is_err() {
+                        return;
+                    }
+
+                    let _ = stop_rx.recv();
+                    if let Err(e) = stream.pause() {
+                        eprintln!("[audio] could not pause capture stream: {e}");
+                    }
+                }
+                Err(e) => {
+                    let _ = init_tx.send(Err(e.to_string()));
+                }
+            }
+        })?;
+
+    match init_rx.recv() {
+        Ok(Ok((src_sr, dropped_samples))) => Ok(Capture {
+            src_sr,
+            dropped_samples,
+            stop_tx: Some(stop_tx),
+            thread: Some(thread),
+        }),
+        Ok(Err(message)) => {
+            let _ = thread.join();
+            Err(anyhow!(message))
+        }
+        Err(e) => {
+            let _ = thread.join();
+            Err(anyhow!("audio capture thread stopped during startup: {e}"))
+        }
+    }
+}
+
+fn open_capture(
+    prod: impl Producer<Item = f32> + Send + 'static,
+    device_name: Option<&str>,
+) -> Result<(cpal::Stream, u32, Arc<AtomicU64>)> {
     let host = cpal::default_host();
     let device = device_name
         .and_then(|name| {
@@ -76,7 +144,7 @@ pub fn start_capture(
 fn start_capture_on(
     device: cpal::Device,
     mut prod: impl Producer<Item = f32> + Send + 'static,
-) -> Result<Capture> {
+) -> Result<(cpal::Stream, u32, Arc<AtomicU64>)> {
     let supported = device.default_input_config()?;
     let src_sr = supported.sample_rate().0;
     let channels = supported.channels() as usize;
@@ -115,11 +183,7 @@ fn start_capture_on(
         other => return Err(anyhow!("unsupported sample format {other:?}")),
     };
     stream.play()?;
-    Ok(Capture {
-        stream,
-        src_sr,
-        dropped_samples,
-    })
+    Ok((stream, src_sr, dropped_samples))
 }
 
 /// Resampler en streaming src_sr -> 16k mono.
@@ -206,6 +270,12 @@ pub fn try_claim(f: &RecordingFlag) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_handle_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<Capture>();
+    }
 
     #[test]
     fn counts_samples_rejected_by_a_full_ring() {
